@@ -5,20 +5,18 @@ import ora from "ora";
 import type { Command } from "commander";
 import { loadConfig } from "@agent-orchestrator/core";
 import type { OrchestratorConfig, ProjectConfig } from "@agent-orchestrator/core";
-import { exec, tmux, git } from "../lib/shell.js";
+import { exec, git, getTmuxSessions } from "../lib/shell.js";
 import { getSessionDir, writeMetadata, findSessionForIssue } from "../lib/metadata.js";
 import { banner } from "../lib/format.js";
 
-async function getTmuxSessions(): Promise<string[]> {
-  const output = await tmux("list-sessions", "-F", "#{session_name}");
-  if (!output) return [];
-  return output.split("\n").filter(Boolean);
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function getNextSessionNumber(prefix: string): Promise<number> {
   const sessions = await getTmuxSessions();
   let max = 0;
-  const pattern = new RegExp(`^${prefix}-(\\d+)$`);
+  const pattern = new RegExp(`^${escapeRegex(prefix)}-(\\d+)$`);
   for (const s of sessions) {
     const m = s.match(pattern);
     if (m) {
@@ -56,9 +54,9 @@ async function spawnSession(
       project.path
     );
     if (!result) {
-      // Branch might already exist
+      // Branch already exists — check it out in the new worktree
       await git(
-        ["worktree", "add", worktreePath, defaultRef],
+        ["worktree", "add", worktreePath, branch],
         project.path
       );
     }
@@ -117,6 +115,21 @@ async function spawnSession(
     "DIRENV_LOG_FORMAT=",
   ]);
 
+  // Run post-create hooks before agent launch (so environment is ready)
+  if (project.postCreate) {
+    for (const cmd of project.postCreate) {
+      await exec("tmux", [
+        "send-keys",
+        "-t",
+        sessionName,
+        cmd,
+        "Enter",
+      ]);
+    }
+    // Allow hooks to complete before starting agent
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
   // Start agent
   const agentName = project.agent || config.defaults.agent;
   let launchCmd: string;
@@ -164,19 +177,6 @@ async function spawnSession(
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const prompt = `Please start working on ${issueId}, fetch ticket info, create the appropriate branch so that github auto links to linear, and start working on the task`;
     await exec("tmux", ["send-keys", "-t", sessionName, prompt, "Enter"]);
-  }
-
-  // Run post-create hooks
-  if (project.postCreate) {
-    for (const cmd of project.postCreate) {
-      await exec("tmux", [
-        "send-keys",
-        "-t",
-        sessionName,
-        cmd,
-        "Enter",
-      ]);
-    }
   }
 
   // Open terminal tab if requested

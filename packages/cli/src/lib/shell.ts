@@ -52,3 +52,22 @@ export async function git(
 export async function gh(args: string[]): Promise<string | null> {
   return execSilent("gh", args);
 }
+
+export async function getTmuxSessions(): Promise<string[]> {
+  const output = await tmux("list-sessions", "-F", "#{session_name}");
+  if (!output) return [];
+  return output.split("\n").filter(Boolean);
+}
+
+export async function getTmuxActivity(session: string): Promise<number | null> {
+  const output = await tmux(
+    "display-message",
+    "-t",
+    session,
+    "-p",
+    "#{session_activity}"
+  );
+  if (!output) return null;
+  const ts = parseInt(output, 10);
+  return isNaN(ts) ? null : ts * 1000;
+}

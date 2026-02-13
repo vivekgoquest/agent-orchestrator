@@ -2,28 +2,9 @@ import chalk from "chalk";
 import type { Command } from "commander";
 import { loadConfig } from "@agent-orchestrator/core";
 import type { OrchestratorConfig } from "@agent-orchestrator/core";
-import { exec, tmux, git, gh } from "../lib/shell.js";
+import { tmux, git, gh, getTmuxSessions, getTmuxActivity } from "../lib/shell.js";
 import { getSessionDir, readMetadata, archiveMetadata } from "../lib/metadata.js";
 import { formatAge } from "../lib/format.js";
-
-async function getTmuxSessions(): Promise<string[]> {
-  const output = await tmux("list-sessions", "-F", "#{session_name}");
-  if (!output) return [];
-  return output.split("\n").filter(Boolean);
-}
-
-async function getTmuxActivity(session: string): Promise<number | null> {
-  const output = await tmux(
-    "display-message",
-    "-t",
-    session,
-    "-p",
-    "#{session_activity}"
-  );
-  if (!output) return null;
-  const ts = parseInt(output, 10);
-  return isNaN(ts) ? null : ts * 1000;
-}
 
 async function killSession(
   config: OrchestratorConfig,
@@ -155,6 +136,7 @@ export function registerSession(program: Command): void {
       console.log(chalk.bold("Checking for completed sessions...\n"));
 
       let cleaned = 0;
+      let found = 0;
 
       for (const [projectId, project] of Object.entries(projects)) {
         const prefix = project.sessionPrefix || projectId;
@@ -193,6 +175,7 @@ export function registerSession(program: Command): void {
           }
 
           if (shouldKill) {
+            found++;
             if (opts.dryRun) {
               console.log(
                 chalk.yellow(
@@ -210,9 +193,16 @@ export function registerSession(program: Command): void {
         }
       }
 
-      if (cleaned === 0 && !opts.dryRun) {
+      if (opts.dryRun) {
+        if (found === 0) {
+          console.log(chalk.dim("  No sessions to clean up."));
+        } else {
+          console.log(chalk.dim(`\nDry run complete. ${found} session${found !== 1 ? "s" : ""} would be cleaned.`));
+        }
+      } else if (cleaned === 0) {
         console.log(chalk.dim("  No sessions to clean up."));
+      } else {
+        console.log(chalk.green(`\nCleanup complete. ${cleaned} sessions cleaned.`));
       }
-      console.log(chalk.green(`\nCleanup complete. ${cleaned} sessions cleaned.`));
     });
 }

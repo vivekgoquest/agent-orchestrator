@@ -7,7 +7,7 @@ export function getSessionDir(dataDir: string, projectId: string): string {
   return join(dataDir, `${projectId}-sessions`);
 }
 
-export function readMetadata(filePath: string): SessionMetadata | null {
+export function readMetadata(filePath: string): Partial<SessionMetadata> | null {
   if (!existsSync(filePath)) return null;
   const content = readFileSync(filePath, "utf-8");
   const meta: Record<string, string> = {};
@@ -17,7 +17,7 @@ export function readMetadata(filePath: string): SessionMetadata | null {
       meta[line.slice(0, eq)] = line.slice(eq + 1);
     }
   }
-  return meta as unknown as SessionMetadata;
+  return meta as Partial<SessionMetadata>;
 }
 
 export function writeMetadata(

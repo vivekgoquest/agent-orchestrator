@@ -1,8 +1,10 @@
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import chalk from "chalk";
 import type { Command } from "commander";
 import type { OrchestratorConfig } from "@agent-orchestrator/core";
 import { loadConfig } from "@agent-orchestrator/core";
-import { tmux, git } from "../lib/shell.js";
+import { exec, git, getTmuxSessions, getTmuxActivity } from "../lib/shell.js";
 import { getSessionDir, readMetadata } from "../lib/metadata.js";
 import { banner, header, formatAge, statusColor } from "../lib/format.js";
 
@@ -11,35 +13,92 @@ interface SessionInfo {
   branch: string | null;
   status: string | null;
   summary: string | null;
+  claudeSummary: string | null;
   pr: string | null;
   issue: string | null;
   lastActivity: string;
   project: string | null;
 }
 
-async function getTmuxSessions(): Promise<string[]> {
-  const output = await tmux("list-sessions", "-F", "#{session_name}");
-  if (!output) return [];
-  return output.split("\n").filter(Boolean);
-}
+/**
+ * Extracts Claude's auto-generated summary from its internal session data.
+ * Maps: tmux session → TTY → Claude PID → CWD → .claude/projects/ → JSONL summary
+ */
+async function getClaudeSessionInfo(
+  sessionName: string
+): Promise<{ summary: string | null; sessionId: string | null }> {
+  try {
+    // Get the TTY for this tmux session's pane
+    const ttyOutput = await exec("tmux", [
+      "display-message", "-t", sessionName, "-p", "#{pane_tty}",
+    ]);
+    const tty = ttyOutput.stdout.trim();
+    if (!tty) return { summary: null, sessionId: null };
 
-async function getTmuxActivity(session: string): Promise<number | null> {
-  const output = await tmux(
-    "display-message",
-    "-t",
-    session,
-    "-p",
-    "#{session_activity}"
-  );
-  if (!output) return null;
-  const ts = parseInt(output, 10);
-  return isNaN(ts) ? null : ts * 1000;
+    // Find Claude PID running on that TTY
+    const psOutput = await exec("bash", [
+      "-c",
+      `ps -eo pid,tty,comm | grep claude | grep "${tty.replace("/dev/", "")}" | head -1 | awk '{print $1}'`,
+    ]);
+    const pid = psOutput.stdout.trim();
+    if (!pid) return { summary: null, sessionId: null };
+
+    // Get Claude's working directory
+    const cwdOutput = await exec("lsof", [
+      "-p", pid, "-d", "cwd", "-Fn",
+    ]);
+    const cwdMatch = cwdOutput.stdout.match(/n(.+)/);
+    const cwd = cwdMatch?.[1];
+    if (!cwd) return { summary: null, sessionId: null };
+
+    // Encode path for Claude's project directory naming
+    const encodedPath = cwd.replace(/\//g, "-").replace(/^-/, "");
+    const claudeProjectDir = join(
+      process.env.HOME || "~",
+      ".claude",
+      "projects",
+      encodedPath
+    );
+
+    if (!existsSync(claudeProjectDir)) return { summary: null, sessionId: null };
+
+    // Find the most recent session file
+    const files = readdirSync(claudeProjectDir)
+      .filter((f) => f.endsWith(".jsonl"))
+      .sort()
+      .reverse();
+
+    if (files.length === 0) return { summary: null, sessionId: null };
+
+    const sessionFile = join(claudeProjectDir, files[0]);
+    const sessionId = files[0].replace(".jsonl", "").slice(0, 8);
+
+    // Read last few lines to find auto-generated summary
+    const content = readFileSync(sessionFile, "utf-8");
+    const lines = content.trim().split("\n").slice(-20);
+    let summary: string | null = null;
+
+    for (const line of lines.reverse()) {
+      try {
+        const entry = JSON.parse(line);
+        if (entry.type === "summary" || entry.summary) {
+          summary = entry.summary || entry.message;
+          break;
+        }
+      } catch {
+        // Skip non-JSON lines
+      }
+    }
+
+    return { summary, sessionId };
+  } catch {
+    return { summary: null, sessionId: null };
+  }
 }
 
 async function gatherSessionInfo(
   sessionName: string,
   sessionDir: string,
-  worktreeDir?: string
 ): Promise<SessionInfo> {
   const metaFile = `${sessionDir}/${sessionName}`;
   const meta = readMetadata(metaFile);
@@ -62,7 +121,14 @@ async function gatherSessionInfo(
   const activityTs = await getTmuxActivity(sessionName);
   const lastActivity = activityTs ? formatAge(activityTs) : "-";
 
-  return { name: sessionName, branch, status, summary, pr, issue, lastActivity, project };
+  // Get Claude's auto-generated summary
+  const claudeInfo = await getClaudeSessionInfo(sessionName);
+
+  return {
+    name: sessionName, branch, status, summary,
+    claudeSummary: claudeInfo.summary,
+    pr, issue, lastActivity, project,
+  };
 }
 
 function printSession(info: SessionInfo): void {
@@ -79,7 +145,11 @@ function printSession(info: SessionInfo): void {
   if (info.pr) {
     console.log(`     ${chalk.dim("PR:")}     ${chalk.blue(info.pr)}`);
   }
-  if (info.summary) {
+  if (info.claudeSummary) {
+    console.log(
+      `     ${chalk.dim("Claude:")} ${info.claudeSummary.slice(0, 65)}`
+    );
+  } else if (info.summary) {
     console.log(
       `     ${chalk.dim("Summary:")} ${info.summary.slice(0, 65)}`
     );

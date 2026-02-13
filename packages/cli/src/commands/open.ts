@@ -1,18 +1,17 @@
 import chalk from "chalk";
 import type { Command } from "commander";
 import { loadConfig } from "@agent-orchestrator/core";
-import { exec, tmux } from "../lib/shell.js";
+import { exec, getTmuxSessions } from "../lib/shell.js";
 
-async function getTmuxSessions(): Promise<string[]> {
-  const output = await tmux("list-sessions", "-F", "#{session_name}");
-  if (!output) return [];
-  return output.split("\n").filter(Boolean);
-}
-
-async function openInTerminal(sessionName: string): Promise<boolean> {
+async function openInTerminal(
+  sessionName: string,
+  newWindow?: boolean
+): Promise<boolean> {
   try {
-    // Try open-iterm-tab script first (user may have it installed)
-    await exec("open-iterm-tab", [sessionName]);
+    const args = newWindow
+      ? ["--new-window", sessionName]
+      : [sessionName];
+    await exec("open-iterm-tab", args);
     return true;
   } catch {
     // Fall back to tmux attach hint
@@ -75,7 +74,7 @@ export function registerOpen(program: Command): void {
       );
 
       for (const session of sessionsToOpen.sort()) {
-        const opened = await openInTerminal(session);
+        const opened = await openInTerminal(session, opts.newWindow);
         if (opened) {
           console.log(chalk.green(`  Opened: ${session}`));
         } else {

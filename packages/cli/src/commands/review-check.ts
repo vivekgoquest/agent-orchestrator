@@ -2,14 +2,8 @@ import chalk from "chalk";
 import ora from "ora";
 import type { Command } from "commander";
 import { loadConfig } from "@agent-orchestrator/core";
-import { exec, tmux, gh } from "../lib/shell.js";
+import { exec, gh, getTmuxSessions } from "../lib/shell.js";
 import { getSessionDir, readMetadata } from "../lib/metadata.js";
-
-async function getTmuxSessions(): Promise<string[]> {
-  const output = await tmux("list-sessions", "-F", "#{session_name}");
-  if (!output) return [];
-  return output.split("\n").filter(Boolean);
-}
 
 interface ReviewInfo {
   session: string;
