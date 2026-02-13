@@ -474,13 +474,21 @@ describe("detectActivity", () => {
     expect(await agent.detectActivity(session)).toBe("active");
   });
 
-  it("handles non-tmux runtime: returns idle when process alive but no output", async () => {
+  it("handles non-tmux runtime: returns active when process alive but no output", async () => {
     const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
     const session = makeSession({ runtimeHandle: makeProcessHandle(555) });
     // findClaudeProcess confirms alive via process.kill(555,0)
-    // No tmux pane → output stays null → returns idle (process alive, no output)
-    expect(await agent.detectActivity(session)).toBe("idle");
+    // No tmux pane → output stays null → returns "active" (can't determine state)
+    expect(await agent.detectActivity(session)).toBe("active");
     killSpy.mockRestore();
+  });
+
+  it("idle prompt overrides stale blocked errors in buffer", async () => {
+    // Buffer contains a blocked error from earlier, but the agent has since
+    // recovered and is now at its idle prompt — idle should take priority.
+    mockTmuxWithActivity("Error: module not found\nsome output\n❯ \n");
+    const session = makeSession({ runtimeHandle: makeTmuxHandle() });
+    expect(await agent.detectActivity(session)).toBe("idle");
   });
 });
 
@@ -728,6 +736,19 @@ describe("introspect", () => {
       mockJsonlFiles(jsonl);
       const result = await agent.introspect(makeSession());
       expect(result?.summary).toBe("Good summary");
+    });
+
+    it("skips JSON null, array, and primitive values", async () => {
+      const jsonl = [
+        "null",
+        "42",
+        '"just a string"',
+        "[1,2,3]",
+        '{"type":"summary","summary":"Valid object"}',
+      ].join("\n");
+      mockJsonlFiles(jsonl);
+      const result = await agent.introspect(makeSession());
+      expect(result?.summary).toBe("Valid object");
     });
 
     it("handles readFile failure gracefully", async () => {

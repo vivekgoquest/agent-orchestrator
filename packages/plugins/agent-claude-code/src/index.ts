@@ -105,7 +105,11 @@ async function parseJsonlFile(filePath: string): Promise<JsonlLine[]> {
     const trimmed = line.trim();
     if (!trimmed) continue;
     try {
-      lines.push(JSON.parse(trimmed) as JsonlLine);
+      const parsed: unknown = JSON.parse(trimmed);
+      // Skip non-object values (null, numbers, strings, arrays)
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        lines.push(parsed as JsonlLine);
+      }
     } catch {
       // Skip malformed lines
     }
@@ -377,17 +381,25 @@ function createClaudeCodeAgent(): Agent {
         return "active";
       }
 
-      // Empty/null output with a confirmed-alive process means the pane
+      // No terminal output available (non-tmux runtime) — process is
+      // confirmed alive so default to "active", not "idle" (we can't know).
+      if (output === null) return "active";
+
+      // Empty tmux pane with a confirmed-alive process means the pane
       // hasn't rendered yet or was cleared — not that the process exited.
-      if (!output || output.trim() === "") return "idle";
+      if (output.trim() === "") return "idle";
 
       // Check patterns in priority order.
-      // Blocked before input: error messages like "EACCES: permission denied"
-      // contain words ("permission") that INPUT_PATTERNS would match.
+      // 1. Active indicators (⏺, "esc to interrupt") are real-time — override everything.
+      // 2. Idle prompt (❯) means the agent is at its command line and has
+      //    recovered from any stale errors in the buffer — check before blocked.
+      // 3. Blocked errors only matter if no idle prompt follows them.
+      // 4. Input prompts checked last (blocked errors like "EACCES: permission
+      //    denied" contain "permission" which INPUT_PATTERNS would match).
       if (ACTIVE_PATTERNS.test(output)) return "active";
+      if (IDLE_PATTERNS.test(output)) return "idle";
       if (BLOCKED_PATTERNS.test(output)) return "blocked";
       if (INPUT_PATTERNS.test(output)) return "waiting_input";
-      if (IDLE_PATTERNS.test(output)) return "idle";
 
       // Default: if process is running but no clear pattern, assume active
       return "active";
