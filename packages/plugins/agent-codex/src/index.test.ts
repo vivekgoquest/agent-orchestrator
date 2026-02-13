@@ -211,6 +211,31 @@ describe("isProcessRunning", () => {
     mockExecFileAsync.mockRejectedValue(new Error("tmux not running"));
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
   });
+
+  it("returns true when PID exists but throws EPERM", async () => {
+    const epermErr = Object.assign(new Error("EPERM"), { code: "EPERM" });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw epermErr;
+    });
+    expect(await agent.isProcessRunning(makeProcessHandle(789))).toBe(true);
+    killSpy.mockRestore();
+  });
+
+  it("finds codex on any pane in multi-pane session", async () => {
+    mockExecFileAsync.mockImplementation((cmd: string) => {
+      if (cmd === "tmux") {
+        return Promise.resolve({ stdout: "/dev/ttys001\n/dev/ttys002\n", stderr: "" });
+      }
+      if (cmd === "ps") {
+        return Promise.resolve({
+          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  codex --model o3\n",
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
+  });
 });
 
 // =========================================================================

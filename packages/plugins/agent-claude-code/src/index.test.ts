@@ -288,6 +288,47 @@ describe("isProcessRunning", () => {
     mockExecFileAsync.mockRejectedValue(new Error("fail"));
     expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
   });
+
+  it("returns true when PID exists but throws EPERM", async () => {
+    const epermErr = Object.assign(new Error("EPERM"), { code: "EPERM" });
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
+      throw epermErr;
+    });
+    expect(await agent.isProcessRunning(makeProcessHandle(789))).toBe(true);
+    killSpy.mockRestore();
+  });
+
+  it("finds claude on any pane in multi-pane session", async () => {
+    mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "list-panes") {
+        return Promise.resolve({ stdout: "/dev/ttys001\n/dev/ttys002\n", stderr: "" });
+      }
+      if (cmd === "ps") {
+        return Promise.resolve({
+          stdout: "  PID TT ARGS\n  100 ttys001  bash\n  200 ttys002  claude -p test\n",
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(true);
+  });
+
+  it("does not match similar process names like claude-code", async () => {
+    mockExecFileAsync.mockImplementation((cmd: string, args: string[]) => {
+      if (cmd === "tmux" && args[0] === "list-panes") {
+        return Promise.resolve({ stdout: "/dev/ttys001\n", stderr: "" });
+      }
+      if (cmd === "ps") {
+        return Promise.resolve({
+          stdout: "  PID TT ARGS\n  100 ttys001  /usr/bin/claude-code\n",
+          stderr: "",
+        });
+      }
+      return Promise.reject(new Error("unexpected"));
+    });
+    expect(await agent.isProcessRunning(makeTmuxHandle())).toBe(false);
+  });
 });
 
 // =========================================================================

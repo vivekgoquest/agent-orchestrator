@@ -88,23 +88,21 @@ function createAiderAgent(): Agent {
             "-F",
             "#{pane_tty}",
           ]);
-          const tty = ttyOut.trim().split("\n")[0];
-          if (!tty) return false;
+          const ttys = ttyOut
+            .trim()
+            .split("\n")
+            .map((t) => t.trim())
+            .filter(Boolean);
+          if (ttys.length === 0) return false;
 
-          const ttyShort = tty.replace(/^\/dev\//, "");
-          // Use `args` instead of `comm` so we match the CLI name even when
-          // running via a wrapper (e.g. python, pipx).
           const { stdout: psOut } = await execFileAsync("ps", ["-eo", "pid,tty,args"]);
+          const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
+          const processRe = /(?:^|\/)aider(?:\s|$)/;
           for (const line of psOut.split("\n")) {
             const cols = line.trimStart().split(/\s+/);
-            if (cols.length < 3 || cols[1] !== ttyShort) continue;
+            if (cols.length < 3 || !ttySet.has(cols[1] ?? "")) continue;
             const args = cols.slice(2).join(" ");
-            if (
-              args === "aider" ||
-              args.startsWith("aider ") ||
-              args.includes("/aider ") ||
-              args.includes("/aider")
-            ) {
+            if (processRe.test(args)) {
               return true;
             }
           }
@@ -117,7 +115,10 @@ function createAiderAgent(): Agent {
           try {
             process.kill(pid, 0);
             return true;
-          } catch {
+          } catch (err: unknown) {
+            if (err instanceof Error && "code" in err && err.code === "EPERM") {
+              return true;
+            }
             return false;
           }
         }

@@ -253,26 +253,27 @@ async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> 
         "-F",
         "#{pane_tty}",
       ]);
-      const tty = ttyOut.trim().split("\n")[0];
-      if (!tty) return null;
+      // Iterate all pane TTYs (multi-pane sessions) — succeed on any match
+      const ttys = ttyOut
+        .trim()
+        .split("\n")
+        .map((t) => t.trim())
+        .filter(Boolean);
+      if (ttys.length === 0) return null;
 
-      const ttyShort = tty.replace(/^\/dev\//, "");
       // Use `args` instead of `comm` so we can match the CLI name even when
       // the process runs via a wrapper (e.g. node, python).  `comm` would
       // report "node" instead of "claude" in those cases.
       const { stdout: psOut } = await execFileAsync("ps", ["-eo", "pid,tty,args"]);
+      const ttySet = new Set(ttys.map((t) => t.replace(/^\/dev\//, "")));
+      // Match "claude" as a word boundary — prevents false positives on
+      // names like "claude-code" or paths that merely contain the substring.
+      const processRe = /(?:^|\/)claude(?:\s|$)/;
       for (const line of psOut.split("\n")) {
         const cols = line.trimStart().split(/\s+/);
-        if (cols.length < 3 || cols[1] !== ttyShort) continue;
-        // cols[2..] is the full command + arguments — check if any token
-        // ends with the target process name (handles /path/to/claude, npx claude, etc.)
+        if (cols.length < 3 || !ttySet.has(cols[1] ?? "")) continue;
         const args = cols.slice(2).join(" ");
-        if (
-          args === "claude" ||
-          args.startsWith("claude ") ||
-          args.includes("/claude ") ||
-          args.includes("/claude")
-        ) {
+        if (processRe.test(args)) {
           return parseInt(cols[0] ?? "0", 10);
         }
       }
@@ -286,7 +287,11 @@ async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> 
       try {
         process.kill(pid, 0); // Signal 0 = check existence
         return pid;
-      } catch {
+      } catch (err: unknown) {
+        // EPERM means the process exists but we lack permission to signal it
+        if (err instanceof Error && "code" in err && err.code === "EPERM") {
+          return pid;
+        }
         return null;
       }
     }
