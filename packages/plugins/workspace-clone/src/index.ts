@@ -85,8 +85,17 @@ export function create(config?: Record<string, unknown>): Workspace {
       try {
         await git(clonePath, "checkout", "-b", cfg.branch);
       } catch {
-        // Branch may exist on remote
-        await git(clonePath, "checkout", cfg.branch);
+        // Branch may exist on remote — try plain checkout
+        try {
+          await git(clonePath, "checkout", cfg.branch);
+        } catch (checkoutErr: unknown) {
+          // Both checkout attempts failed — clean up the orphaned clone
+          rmSync(clonePath, { recursive: true, force: true });
+          const msg = checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
+          throw new Error(`Failed to checkout branch "${cfg.branch}" in clone: ${msg}`, {
+            cause: checkoutErr,
+          });
+        }
       }
 
       return {

@@ -83,7 +83,22 @@ export function create(config?: Record<string, unknown>): Workspace {
         }
         // Branch already exists — create worktree and check it out
         await git(repoPath, "worktree", "add", worktreePath, baseRef);
-        await git(worktreePath, "checkout", cfg.branch);
+        try {
+          await git(worktreePath, "checkout", cfg.branch);
+        } catch (checkoutErr: unknown) {
+          // Checkout failed — remove the orphaned worktree before rethrowing
+          try {
+            await git(repoPath, "worktree", "remove", "--force", worktreePath);
+          } catch {
+            // Best-effort cleanup
+          }
+          const checkoutMsg =
+            checkoutErr instanceof Error ? checkoutErr.message : String(checkoutErr);
+          throw new Error(
+            `Failed to checkout branch "${cfg.branch}" in worktree: ${checkoutMsg}`,
+            { cause: checkoutErr },
+          );
+        }
       }
 
       return {
@@ -95,14 +110,6 @@ export function create(config?: Record<string, unknown>): Workspace {
     },
 
     async destroy(workspacePath: string): Promise<void> {
-      // Find the main repo path from the worktree
-      let branch: string | null = null;
-      try {
-        branch = await git(workspacePath, "branch", "--show-current");
-      } catch {
-        // May not be a valid git dir
-      }
-
       try {
         const gitCommonDir = await git(
           workspacePath,
@@ -114,16 +121,11 @@ export function create(config?: Record<string, unknown>): Workspace {
         const repoPath = resolve(gitCommonDir, "..");
         await git(repoPath, "worktree", "remove", "--force", workspacePath);
 
-        // Clean up the orphaned branch to prevent stale branch accumulation.
-        // Guard: only delete feature branches (contain "/"), never default branches
-        // like main, master, next, develop.
-        if (branch && branch.includes("/")) {
-          try {
-            await git(repoPath, "branch", "-D", "--", branch);
-          } catch {
-            // Branch may be checked out elsewhere or already deleted
-          }
-        }
+        // NOTE: We intentionally do NOT delete the branch here. The worktree
+        // removal is sufficient. Auto-deleting branches risks removing
+        // pre-existing local branches unrelated to this workspace (any branch
+        // containing "/" would have been deleted). Stale branches can be
+        // cleaned up separately via `git branch --merged` or similar.
       } catch {
         // If git commands fail, try to clean up the directory
         if (existsSync(workspacePath)) {
