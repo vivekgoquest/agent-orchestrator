@@ -132,6 +132,21 @@ describe("getAttentionLevel", () => {
       expect(getAttentionLevel(session)).toBe("warning");
     });
 
+    it("returns warning when review decision is none", () => {
+      const pr = makePR({
+        reviewDecision: "none",
+        mergeability: {
+          mergeable: false,
+          ciPassing: true,
+          approved: false,
+          noConflicts: true,
+          blockers: ["Needs review"],
+        },
+      });
+      const session = makeSession({ status: "pr_open", activity: "idle", pr });
+      expect(getAttentionLevel(session)).toBe("warning");
+    });
+
     it("returns warning when there are unresolved threads", () => {
       const pr = makePR({
         reviewDecision: "approved",

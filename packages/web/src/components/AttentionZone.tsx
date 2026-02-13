@@ -30,7 +30,7 @@ const zoneConfig: Record<
   action: {
     label: "ACTION",
     description: "PRs ready to merge",
-    color: "var(--color-accent-green)",
+    color: "var(--color-accent-orange)",
     defaultCollapsed: false,
   },
   warning: {

@@ -23,7 +23,7 @@ const activityIcon: Record<string, string> = {
 
 const borderColorByLevel: Record<AttentionLevel, string> = {
   urgent: "border-l-[var(--color-accent-red)]",
-  action: "border-l-[var(--color-accent-green)]",
+  action: "border-l-[var(--color-accent-orange)]",
   warning: "border-l-[var(--color-accent-yellow)]",
   ok: "border-l-[var(--color-accent-blue)]",
   done: "border-l-[var(--color-border-default)]",

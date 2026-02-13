@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { type DashboardSession, getAttentionLevel } from "@/lib/types";
 import { PRStatus } from "./PRStatus";
 import { CICheckList } from "./CIBadge";
@@ -69,8 +70,8 @@ export function SessionDetail({ session }: SessionDetailProps) {
         <InfoCard label="Status" value={session.status} />
         <InfoCard label="Branch" value={session.branch ?? "—"} mono />
         <InfoCard label="Issue" value={session.issueId ?? "—"} />
-        <InfoCard label="Created" value={new Date(session.createdAt).toLocaleString()} />
-        <InfoCard label="Last Activity" value={new Date(session.lastActivityAt).toLocaleString()} />
+        <ClientDateCard label="Created" date={session.createdAt} />
+        <ClientDateCard label="Last Activity" date={session.lastActivityAt} />
       </div>
 
       {/* PR Section */}
@@ -210,12 +211,21 @@ function ReadinessItem({ label, ok }: { label: string; ok: boolean }) {
   );
 }
 
+/** Renders date client-side only to avoid hydration mismatch from locale/timezone differences. */
+function ClientDateCard({ label, date }: { label: string; date: string }) {
+  const [formatted, setFormatted] = useState(date);
+  useEffect(() => {
+    setFormatted(new Date(date).toLocaleString());
+  }, [date]);
+  return <InfoCard label={label} value={formatted} />;
+}
+
 function levelColor(level: string): string {
   switch (level) {
     case "urgent":
       return "var(--color-accent-red)";
     case "action":
-      return "var(--color-accent-green)";
+      return "var(--color-accent-orange)";
     case "warning":
       return "var(--color-accent-yellow)";
     case "ok":

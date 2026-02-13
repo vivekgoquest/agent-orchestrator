@@ -1,6 +1,8 @@
 import { mockSessions } from "@/lib/mock-data";
 import { getAttentionLevel } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 /**
  * GET /api/events — SSE stream for real-time lifecycle events
  *

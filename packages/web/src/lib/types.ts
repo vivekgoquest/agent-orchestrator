@@ -173,7 +173,11 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
     }
 
     // Yellow zone: WARNING — needs review, auto-fix failed
-    if (pr.reviewDecision === "pending" || pr.unresolvedThreads > 0) {
+    if (
+      pr.reviewDecision === "pending" ||
+      pr.reviewDecision === "none" ||
+      pr.unresolvedThreads > 0
+    ) {
       return "warning";
     }
   }
