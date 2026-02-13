@@ -25,7 +25,7 @@ const borderColorByLevel: Record<AttentionLevel, string> = {
   urgent: "border-l-[var(--color-accent-red)]",
   action: "border-l-[var(--color-accent-orange)]",
   warning: "border-l-[var(--color-accent-yellow)]",
-  ok: "border-l-[var(--color-accent-blue)]",
+  ok: "border-l-[var(--color-accent-green)]",
   done: "border-l-[var(--color-border-default)]",
 };
 

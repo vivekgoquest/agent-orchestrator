@@ -229,7 +229,7 @@ function levelColor(level: string): string {
     case "warning":
       return "var(--color-accent-yellow)";
     case "ok":
-      return "var(--color-accent-blue)";
+      return "var(--color-accent-green)";
     default:
       return "var(--color-text-muted)";
   }

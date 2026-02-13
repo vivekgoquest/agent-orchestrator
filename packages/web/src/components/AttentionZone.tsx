@@ -42,7 +42,7 @@ const zoneConfig: Record<
   ok: {
     label: "WORKING",
     description: "Sessions working normally",
-    color: "var(--color-accent-blue)",
+    color: "var(--color-accent-green)",
     defaultCollapsed: true,
   },
   done: {

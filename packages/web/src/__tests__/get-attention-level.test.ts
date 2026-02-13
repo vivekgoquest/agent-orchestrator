@@ -185,6 +185,22 @@ describe("getAttentionLevel", () => {
       const session = makeSession({ status: "working", activity: "idle", pr: null });
       expect(getAttentionLevel(session)).toBe("ok");
     });
+
+    it("returns ok for draft PR with reviewDecision none", () => {
+      const pr = makePR({
+        isDraft: true,
+        reviewDecision: "none",
+        mergeability: {
+          mergeable: false,
+          ciPassing: true,
+          approved: false,
+          noConflicts: true,
+          blockers: ["Draft PR"],
+        },
+      });
+      const session = makeSession({ status: "working", activity: "active", pr });
+      expect(getAttentionLevel(session)).toBe("ok");
+    });
   });
 
   // ── DONE (grey zone) ───────────────────────────────────────────────

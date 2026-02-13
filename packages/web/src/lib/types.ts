@@ -158,9 +158,9 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
     return "urgent";
   }
 
-  // Status-based mappings for sessions without PR data
+  // Status-based mappings
   if (session.status === "mergeable" || session.status === "approved") {
-    return session.pr ? "action" : "action";
+    return "action";
   }
   if (session.status === "review_pending") {
     return "warning";
@@ -189,10 +189,13 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
     }
 
     // Yellow zone: WARNING — needs review, auto-fix failed
+    // Draft PRs with "none" review are still being worked on → skip to ok
+    if (pr.unresolvedThreads > 0) {
+      return "warning";
+    }
     if (
-      pr.reviewDecision === "pending" ||
-      pr.reviewDecision === "none" ||
-      pr.unresolvedThreads > 0
+      !pr.isDraft &&
+      (pr.reviewDecision === "pending" || pr.reviewDecision === "none")
     ) {
       return "warning";
     }
