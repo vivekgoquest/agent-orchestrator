@@ -139,6 +139,28 @@ describe("API Routes", () => {
       const data = await res.json();
       expect(data.error).toMatch(/message/);
     });
+
+    it("returns 400 for invalid JSON body", async () => {
+      const req = makeRequest("/api/sessions/backend-3/send", {
+        method: "POST",
+        body: "not json",
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await sendPOST(req, { params: Promise.resolve({ id: "backend-3" }) });
+      expect(res.status).toBe(400);
+    });
+
+    it("returns 400 for control-char-only message", async () => {
+      const req = makeRequest("/api/sessions/backend-3/send", {
+        method: "POST",
+        body: JSON.stringify({ message: "\x00\x01\x02" }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const res = await sendPOST(req, { params: Promise.resolve({ id: "backend-3" }) });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toMatch(/empty/);
+    });
   });
 
   // ── POST /api/sessions/:id/kill ────────────────────────────────────
@@ -187,6 +209,32 @@ describe("API Routes", () => {
       const data = await res.json();
       expect(data.error).toMatch(/not mergeable/);
       expect(data.blockers).toBeDefined();
+    });
+
+    it("returns 400 for non-numeric PR id", async () => {
+      const req = makeRequest("/api/prs/abc/merge", { method: "POST" });
+      const res = await mergePOST(req, { params: Promise.resolve({ id: "abc" }) });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toMatch(/Invalid PR number/);
+    });
+
+    it("returns 422 for draft PR", async () => {
+      // PR #440 (frontend-9) is a draft
+      const req = makeRequest("/api/prs/440/merge", { method: "POST" });
+      const res = await mergePOST(req, { params: Promise.resolve({ id: "440" }) });
+      expect(res.status).toBe(422);
+      const data = await res.json();
+      expect(data.error).toMatch(/draft/i);
+    });
+
+    it("returns 409 for merged PR", async () => {
+      // PR #410 (backend-1) is merged
+      const req = makeRequest("/api/prs/410/merge", { method: "POST" });
+      const res = await mergePOST(req, { params: Promise.resolve({ id: "410" }) });
+      expect(res.status).toBe(409);
+      const data = await res.json();
+      expect(data.error).toMatch(/merged/);
     });
   });
 

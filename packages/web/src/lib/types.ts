@@ -104,14 +104,30 @@ export interface DashboardStats {
   needsReview: number;
 }
 
-/** SSE event from /api/events */
-export interface SSEEvent {
-  type: string;
-  sessionId: string;
-  priority: "urgent" | "action" | "warning" | "info";
-  message: string;
-  data: Record<string, unknown>;
+/** SSE snapshot event from /api/events */
+export interface SSESnapshotEvent {
+  type: "snapshot";
+  sessions: Array<{
+    id: string;
+    status: SessionStatus;
+    activity: ActivityState;
+    attentionLevel: AttentionLevel;
+    lastActivityAt: string;
+  }>;
 }
+
+/** SSE activity update event from /api/events */
+export interface SSEActivityEvent {
+  type: "session.activity";
+  sessionId: string;
+  activity: ActivityState;
+  status: SessionStatus;
+  attentionLevel: AttentionLevel;
+  timestamp: string;
+}
+
+/** Union of all SSE events from /api/events */
+export type SSEEvent = SSESnapshotEvent | SSEActivityEvent;
 
 /** Determines which attention zone a session belongs to */
 export function getAttentionLevel(session: DashboardSession): AttentionLevel {
@@ -155,7 +171,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
     const pr = session.pr;
 
     // Grey zone: done
-    if (pr.state === "merged") {
+    if (pr.state === "merged" || pr.state === "closed") {
       return "done";
     }
 

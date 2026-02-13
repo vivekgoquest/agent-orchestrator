@@ -196,6 +196,12 @@ describe("getAttentionLevel", () => {
       expect(getAttentionLevel(session)).toBe("done");
     });
 
+    it("returns done when PR is closed (not merged)", () => {
+      const pr = makePR({ state: "closed" });
+      const session = makeSession({ status: "working", activity: "idle", pr });
+      expect(getAttentionLevel(session)).toBe("done");
+    });
+
     it("returns done when session status is merged (even with open PR state)", () => {
       const pr = makePR({ state: "merged" });
       const session = makeSession({ status: "merged", activity: "idle", pr });

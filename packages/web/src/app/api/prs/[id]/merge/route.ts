@@ -14,6 +14,14 @@ export async function POST(_request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "PR not found" }, { status: 404 });
   }
 
+  if (session.pr.state !== "open") {
+    return NextResponse.json({ error: `PR is ${session.pr.state}, not open` }, { status: 409 });
+  }
+
+  if (session.pr.isDraft) {
+    return NextResponse.json({ error: "Cannot merge a draft PR" }, { status: 422 });
+  }
+
   if (!session.pr.mergeability.mergeable) {
     return NextResponse.json(
       { error: "PR is not mergeable", blockers: session.pr.mergeability.blockers },
