@@ -76,23 +76,8 @@ export function create(): Runtime {
     },
 
     async sendMessage(handle: RuntimeHandle, message: string): Promise<void> {
-      // Wait for idle before sending (up to 60s)
-      const maxWait = 60;
-      const pollInterval = 2;
-      let sentWhileBusy = false;
-      let busy = false;
-      for (let waited = 0; waited < maxWait; waited += pollInterval) {
-        busy = await isBusy(handle.id);
-        if (!busy) break;
-        await sleep(pollInterval * 1000);
-      }
-      if (busy) {
-        sentWhileBusy = true;
-      }
-
       // Clear any partial input
       await tmux("send-keys", "-t", handle.id, "C-u");
-      await sleep(200);
 
       // For long or multiline messages, use load-buffer + paste-buffer
       // Use randomUUID to avoid temp file collisions on concurrent sends
@@ -114,14 +99,7 @@ export function create(): Runtime {
         await tmux("send-keys", "-t", handle.id, message);
       }
 
-      await sleep(300);
       await tmux("send-keys", "-t", handle.id, "Enter");
-
-      if (sentWhileBusy) {
-        throw new Error(
-          `Session ${handle.id} was still busy after ${maxWait}s — message sent but may be lost`,
-        );
-      }
     },
 
     async getOutput(handle: RuntimeHandle, lines = 50): Promise<string> {
@@ -158,33 +136,5 @@ export function create(): Runtime {
   };
 }
 
-/** Check if a tmux session is currently busy (agent processing) */
-async function isBusy(sessionName: string): Promise<boolean> {
-  try {
-    // Single capture-pane call to avoid TOCTOU and redundant subprocess spawns
-    const output = await tmux("capture-pane", "-t", sessionName, "-p", "-S", "-5");
-    const lines = output.split("\n").filter((l) => l.trim() !== "");
-    const lastLine = lines[lines.length - 1] ?? "";
-
-    // Idle indicators: prompt char (❯ anywhere, $ only at line start as shell prompt)
-    if (/❯|^\$\s|⏵⏵|bypass permissions/.test(lastLine)) {
-      return false;
-    }
-
-    // Active indicators: processing spinners (check same output)
-    if (output.includes("esc to interrupt")) {
-      return true;
-    }
-
-    // Default: assume busy if we can't tell
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export default { manifest, create } satisfies PluginModule<Runtime>;
