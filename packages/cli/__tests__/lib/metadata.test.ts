@@ -14,7 +14,6 @@ import {
   getSessionDir,
   readMetadata,
   writeMetadata,
-  updateMetadataField,
   archiveMetadata,
   listSessionFiles,
   findSessionForIssue,
@@ -116,32 +115,6 @@ describe("writeMetadata", () => {
     const file = join(tmpDir, "deep", "nested", "dir", "session-1");
     writeMetadata(file, { branch: "main", status: "idle" });
     expect(existsSync(file)).toBe(true);
-  });
-});
-
-describe("updateMetadataField", () => {
-  it("updates existing field", () => {
-    const file = join(tmpDir, "session-1");
-    writeFileSync(file, "branch=old-branch\nstatus=working\n");
-    updateMetadataField(file, "branch", "new-branch");
-    const content = readFileSync(file, "utf-8");
-    expect(content).toContain("branch=new-branch");
-    expect(content).not.toContain("old-branch");
-    expect(content).toContain("status=working");
-  });
-
-  it("appends new field if not found", () => {
-    const file = join(tmpDir, "session-2");
-    writeFileSync(file, "branch=main\n");
-    updateMetadataField(file, "pr", "https://github.com/org/repo/pull/1");
-    const content = readFileSync(file, "utf-8");
-    expect(content).toContain("branch=main");
-    expect(content).toContain("pr=https://github.com/org/repo/pull/1");
-  });
-
-  it("does nothing for non-existent file", () => {
-    updateMetadataField(join(tmpDir, "nonexistent"), "branch", "main");
-    // Should not throw
   });
 });
 

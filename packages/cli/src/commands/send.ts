@@ -63,6 +63,13 @@ export function registerSend(program: Command): void {
           process.exit(1);
         }
 
+        // Validate message input before any side effects
+        const msg = opts.file ? null : messageParts.join(" ");
+        if (!opts.file && !msg) {
+          console.error(chalk.red("No message provided"));
+          process.exit(1);
+        }
+
         const agent = resolveAgent(session);
 
         const parsedTimeout = parseInt(opts.timeout || "600", 10);
@@ -104,12 +111,7 @@ export function registerSend(program: Command): void {
               // ignore cleanup failure
             }
           }
-        } else {
-          const msg = messageParts.join(" ");
-          if (!msg) {
-            console.error(chalk.red("No message provided"));
-            process.exit(1);
-          }
+        } else if (msg) {
           if (msg.includes("\n") || msg.length > 200) {
             const tmpFile = join(tmpdir(), `ao-send-${Date.now()}.txt`);
             writeFileSync(tmpFile, msg);

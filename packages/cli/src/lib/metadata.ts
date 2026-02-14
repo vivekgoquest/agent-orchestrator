@@ -28,24 +28,6 @@ export function writeMetadata(filePath: string, meta: Partial<SessionMetadata>):
   writeFileSync(filePath, lines.join("\n") + "\n");
 }
 
-export function updateMetadataField(filePath: string, key: string, value: string): void {
-  if (!existsSync(filePath)) return;
-  const content = readFileSync(filePath, "utf-8");
-  const lines = content.split("\n");
-  let found = false;
-  const updated = lines.map((line) => {
-    if (line.startsWith(`${key}=`)) {
-      found = true;
-      return `${key}=${value}`;
-    }
-    return line;
-  });
-  if (!found) {
-    updated.push(`${key}=${value}`);
-  }
-  writeFileSync(filePath, updated.filter((l) => l !== "").join("\n") + "\n");
-}
-
 export function archiveMetadata(sessionDir: string, sessionName: string): void {
   const metaFile = join(sessionDir, sessionName);
   if (!existsSync(metaFile)) return;
