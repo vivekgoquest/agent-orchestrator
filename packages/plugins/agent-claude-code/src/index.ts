@@ -44,11 +44,19 @@ if command -v jq &>/dev/null; then
   tool_name=$(echo "$input" | jq -r '.tool_name // empty')
   command=$(echo "$input" | jq -r '.tool_input.command // empty')
   output=$(echo "$input" | jq -r '.tool_response // empty')
+  exit_code=$(echo "$input" | jq -r '.exit_code // 0')
 else
   # Fallback: basic JSON parsing without jq
   tool_name=$(echo "$input" | grep -o '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   command=$(echo "$input" | grep -o '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
   output=$(echo "$input" | grep -o '"tool_response"[[:space:]]*:[[:space:]]*"[^"]*"' | cut -d'"' -f4 || echo "")
+  exit_code=$(echo "$input" | grep -o '"exit_code"[[:space:]]*:[[:space:]]*[0-9]*' | grep -o '[0-9]*$' || echo "0")
+fi
+
+# Only process successful commands (exit code 0)
+if [[ "$exit_code" -ne 0 ]]; then
+  echo '{}'
+  exit 0
 fi
 
 # Only process Bash tool calls
