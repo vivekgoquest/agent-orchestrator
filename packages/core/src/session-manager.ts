@@ -244,11 +244,15 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     });
 
     // Get agent launch config and create runtime — clean up workspace on failure
+    // NOTE: Do NOT pass composedPrompt here — agentLaunchConfig.prompt triggers
+    // non-interactive mode (e.g. `claude -p '...'`). The composed prompt is
+    // delivered interactively via runtime.sendMessage() after launch so agents
+    // stay interactive for follow-up messages (CI fixes, review comments).
     const agentLaunchConfig = {
       sessionId,
       projectConfig: project,
       issueId: spawnConfig.issueId,
-      prompt: composedPrompt ?? spawnConfig.prompt,
+      prompt: spawnConfig.prompt,
       permissions: project.agentConfig?.permissions,
       model: project.agentConfig?.model,
     };
@@ -314,6 +318,12 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
 
       if (plugins.agent.postLaunchSetup) {
         await plugins.agent.postLaunchSetup(session);
+      }
+
+      // Deliver the composed prompt interactively via runtime.sendMessage()
+      // (not via -p flag, which makes the agent non-interactive)
+      if (composedPrompt) {
+        await plugins.runtime.sendMessage(handle, composedPrompt);
       }
     } catch (err) {
       // Clean up runtime and workspace on post-launch failure
