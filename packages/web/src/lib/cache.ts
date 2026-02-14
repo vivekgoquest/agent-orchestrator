@@ -14,14 +14,21 @@ const DEFAULT_TTL_MS = 60_000; // 60 seconds
 
 /**
  * Simple TTL cache backed by a Map.
- * Automatically evicts stale entries on get().
+ * Automatically evicts stale entries on get() and periodically cleans up.
  */
 export class TTLCache<T> {
   private cache = new Map<string, CacheEntry<T>>();
   private readonly ttlMs: number;
+  private cleanupInterval?: ReturnType<typeof setInterval>;
 
   constructor(ttlMs: number = DEFAULT_TTL_MS) {
     this.ttlMs = ttlMs;
+    // Run cleanup every TTL period to prevent memory leaks from unread keys
+    this.cleanupInterval = setInterval(() => this.evictExpired(), ttlMs);
+    // Ensure cleanup interval doesn't prevent Node process from exiting
+    if (this.cleanupInterval.unref) {
+      this.cleanupInterval.unref();
+    }
   }
 
   /** Get a cached value if it exists and isn't stale */
@@ -45,9 +52,23 @@ export class TTLCache<T> {
     });
   }
 
-  /** Clear all entries */
+  /** Evict all expired entries */
+  private evictExpired(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.cache.entries()) {
+      if (now > entry.expiresAt) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  /** Clear all entries and stop cleanup interval */
   clear(): void {
     this.cache.clear();
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
   }
 
   /** Get cache size (includes stale entries) */

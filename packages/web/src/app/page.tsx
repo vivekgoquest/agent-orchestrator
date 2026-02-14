@@ -2,6 +2,7 @@ import { Dashboard } from "@/components/Dashboard";
 import type { DashboardSession } from "@/lib/types";
 import { getServices, getSCM, getTracker } from "@/lib/services";
 import { sessionToDashboard, enrichSessionPR, enrichSessionIssue, computeStats } from "@/lib/serialize";
+import { prCache, prCacheKey } from "@/lib/cache";
 
 export const dynamic = "force-dynamic";
 
@@ -42,10 +43,11 @@ export default async function Home() {
         return Promise.resolve();
       }
 
-      // Skip enrichment if PR is already merged/closed
-      if (core.pr && sessions[i].pr) {
-        const prState = sessions[i].pr?.state;
-        if (prState === "merged" || prState === "closed") {
+      // Skip enrichment if PR is already merged/closed (check cache)
+      if (core.pr) {
+        const cacheKey = prCacheKey(core.pr.owner, core.pr.repo, core.pr.number);
+        const cached = prCache.get(cacheKey);
+        if (cached && (cached.state === "merged" || cached.state === "closed")) {
           return Promise.resolve();
         }
       }

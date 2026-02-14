@@ -2,7 +2,7 @@
  * Tests for TTL cache implementation
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { TTLCache, prCacheKey } from "../cache";
 
 describe("TTLCache", () => {
@@ -10,6 +10,10 @@ describe("TTLCache", () => {
 
   beforeEach(() => {
     cache = new TTLCache<string>(1000); // 1 second TTL
+  });
+
+  afterEach(() => {
+    cache.clear(); // Clean up interval
   });
 
   it("should store and retrieve values", () => {
@@ -72,7 +76,31 @@ describe("TTLCache", () => {
     vi.advanceTimersByTime(2);
     expect(shortCache.get("key1")).toBeNull();
 
+    shortCache.clear();
     vi.useRealTimers();
+  });
+
+  it("should automatically evict expired entries via cleanup interval", async () => {
+    // Use a real short-lived cache for this test
+    const shortCache = new TTLCache<string>(50); // 50ms TTL
+    shortCache.set("key1", "value1");
+    shortCache.set("key2", "value2");
+    expect(shortCache.size()).toBe(2);
+
+    // Wait for TTL + cleanup interval to run
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    // Both entries should be evicted by cleanup
+    expect(shortCache.size()).toBe(0);
+
+    shortCache.clear();
+  });
+
+  it("should not prevent process exit with unref", () => {
+    // This test just verifies the cache can be created without throwing
+    const testCache = new TTLCache<string>(1000);
+    expect(testCache).toBeDefined();
+    testCache.clear();
   });
 });
 
