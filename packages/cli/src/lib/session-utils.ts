@@ -1,6 +1,6 @@
 import type { OrchestratorConfig } from "@agent-orchestrator/core";
 
-function escapeRegex(str: string): string {
+export function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 

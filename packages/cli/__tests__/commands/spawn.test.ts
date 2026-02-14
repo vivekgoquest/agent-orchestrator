@@ -212,8 +212,8 @@ describe("spawn command", () => {
       "send-keys",
       "-t",
       "app-1",
+      "-l",
       "unset CLAUDECODE && claude",
-      "Enter",
     ]);
   });
 

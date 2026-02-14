@@ -8,10 +8,7 @@ import { exec, git, getTmuxSessions } from "../lib/shell.js";
 import { getSessionDir, writeMetadata, findSessionForIssue } from "../lib/metadata.js";
 import { banner } from "../lib/format.js";
 import { getAgent } from "../lib/plugins.js";
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+import { escapeRegex } from "../lib/session-utils.js";
 
 async function getNextSessionNumber(prefix: string): Promise<number> {
   const sessions = await getTmuxSessions();
@@ -129,7 +126,8 @@ async function spawnSession(
     // Run post-create hooks before agent launch (so environment is ready)
     if (project.postCreate) {
       for (const cmd of project.postCreate) {
-        await exec("tmux", ["send-keys", "-t", sessionName, cmd, "Enter"]);
+        await exec("tmux", ["send-keys", "-t", sessionName, "-l", cmd]);
+        await exec("tmux", ["send-keys", "-t", sessionName, "Enter"]);
       }
       // Allow hooks to complete before starting agent
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -144,7 +142,8 @@ async function spawnSession(
       permissions: project.agentConfig?.permissions,
     });
 
-    await exec("tmux", ["send-keys", "-t", sessionName, launchCmd, "Enter"]);
+    await exec("tmux", ["send-keys", "-t", sessionName, "-l", launchCmd]);
+    await exec("tmux", ["send-keys", "-t", sessionName, "Enter"]);
 
     spinner.text = "Writing metadata";
 
