@@ -45,6 +45,7 @@ vi.mock("@agent-orchestrator/core", async (importOriginal) => {
   return {
     loadConfig: () => mockConfigRef.current,
     buildPrompt: actual["buildPrompt"],
+    tmuxSendKeys: vi.fn().mockResolvedValue(undefined),
   };
 });
 
@@ -236,19 +237,12 @@ describe("spawn command", () => {
 
     await program.parseAsync(["node", "test", "spawn", "my-app", "INT-100"]);
 
-    expect(mockExec).toHaveBeenCalledWith("tmux", [
-      "send-keys",
-      "-t",
+    // Prompt is sent via core tmuxSendKeys (handles multi-line via load-buffer)
+    const { tmuxSendKeys } = await import("@agent-orchestrator/core");
+    expect(tmuxSendKeys).toHaveBeenCalledWith(
       "app-1",
-      "-l",
       expect.stringContaining("INT-100"),
-    ]);
-    expect(mockExec).toHaveBeenCalledWith("tmux", [
-      "send-keys",
-      "-t",
-      "app-1",
-      "Enter",
-    ]);
+    );
   });
 
   it("outputs SESSION= for scripting", async () => {
