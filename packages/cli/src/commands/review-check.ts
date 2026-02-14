@@ -24,8 +24,8 @@ async function checkPRReviews(
   const result = await gh([
     "api", "graphql",
     "-f", `query=${query}`,
-    "-F", `owner=${owner}`,
-    "-F", `name=${name}`,
+    "-f", `owner=${owner}`,
+    "-f", `name=${name}`,
     "-F", `pr=${prNumber}`,
     "--jq", ".data.repository.pullRequest",
   ]);
@@ -126,7 +126,9 @@ export function registerReviewCheck(program: Command): void {
             await new Promise((resolve) => setTimeout(resolve, 200));
             const message =
               "There are review comments on your PR. Check with `gh pr view --comments` and `gh api` for inline comments. Address each one, push fixes, and reply.";
-            await exec("tmux", ["send-keys", "-t", result.session, message, "Enter"]);
+            await exec("tmux", ["send-keys", "-t", result.session, "-l", message]);
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            await exec("tmux", ["send-keys", "-t", result.session, "Enter"]);
             console.log(chalk.green(`    -> Fix prompt sent`));
           } catch (err) {
             console.error(chalk.red(`    -> Failed to send: ${err}`));
