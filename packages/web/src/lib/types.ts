@@ -190,7 +190,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   }
   if (session.pr) {
     const pr = session.pr;
-    if (pr.unresolvedThreads > 0) return "pending";
+    if (!pr.isDraft && pr.unresolvedThreads > 0) return "pending";
     if (!pr.isDraft && (pr.reviewDecision === "pending" || pr.reviewDecision === "none")) {
       return "pending";
     }
