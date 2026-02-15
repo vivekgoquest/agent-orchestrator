@@ -100,16 +100,23 @@ function validateStatus(raw: string | undefined): SessionStatus {
 
 /**
  * Infer projectId from session ID by matching against project sessionPrefix values.
- * Returns the first matching project ID, or empty string if no match.
+ * Prefers the longest matching prefix to handle overlapping prefixes correctly.
+ * Returns the matching project ID, or empty string if no match.
  */
 function inferProjectId(sessionId: SessionId, config: OrchestratorConfig): string {
+  let longestMatch: { projectId: string; prefixLength: number } | null = null;
+
   for (const [projectId, project] of Object.entries(config.projects)) {
+    const prefix = project.sessionPrefix;
     // Match exact prefix: "ao-1" matches prefix "ao", not "aoc" or "a"
-    if (sessionId === project.sessionPrefix || sessionId.startsWith(`${project.sessionPrefix}-`)) {
-      return projectId;
+    if (sessionId === prefix || sessionId.startsWith(`${prefix}-`)) {
+      if (!longestMatch || prefix.length > longestMatch.prefixLength) {
+        longestMatch = { projectId, prefixLength: prefix.length };
+      }
     }
   }
-  return "";
+
+  return longestMatch?.projectId ?? "";
 }
 
 /** Reconstruct a Session object from raw metadata key=value pairs. */
