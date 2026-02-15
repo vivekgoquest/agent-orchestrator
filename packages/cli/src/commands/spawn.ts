@@ -129,6 +129,10 @@ async function spawnSession(
       "-e",
       `${envVar}=${sessionName}`,
       "-e",
+      `AO_SESSION=${sessionName}`,
+      "-e",
+      `AO_DATA_DIR=${config.dataDir}`,
+      "-e",
       "DIRENV_LOG_FORMAT=",
     ]);
 

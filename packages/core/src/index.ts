@@ -52,5 +52,8 @@ export type { PromptBuildConfig } from "./prompt-builder.js";
 export { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
 export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";
 
+// Claude hooks — PostToolUse hook for automatic metadata updates
+export { setupClaudeHooks, hasClaudeHooks } from "./claude-hooks.js";
+
 // Shared utilities
 export { shellEscape, escapeAppleScript, validateUrl } from "./utils.js";

@@ -16,6 +16,7 @@ import type { Command } from "commander";
 import {
   loadConfig,
   generateOrchestratorPrompt,
+  setupClaudeHooks,
   hasTmuxSession,
   newTmuxSession,
   tmuxSendKeys,
@@ -226,6 +227,18 @@ export function registerStart(program: Command): void {
             );
           }
 
+          // Setup Claude Code hooks for automatic metadata updates
+          spinner.start("Configuring Claude Code hooks");
+          try {
+            setupClaudeHooks(project.path);
+            spinner.succeed("Claude Code hooks configured");
+          } catch (err) {
+            spinner.fail("Could not setup Claude hooks");
+            throw new Error(
+              `Failed to setup Claude hooks: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+
           // Start dashboard (unless --no-dashboard)
           let dashboardProcess: ChildProcess | null = null;
           if (opts?.dashboard !== false) {
@@ -260,6 +273,8 @@ export function registerStart(program: Command): void {
             const envVarName = `${project.sessionPrefix.toUpperCase().replace(/[^A-Z0-9_]/g, "_")}_SESSION`;
             const environment: Record<string, string> = {
               [envVarName]: sessionId,
+              AO_SESSION: sessionId,
+              AO_DATA_DIR: config.dataDir,
               DIRENV_LOG_FORMAT: "",
             };
 
