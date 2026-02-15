@@ -87,13 +87,12 @@ async function initServices(): Promise<Services> {
   const lifecycleManager = createLifecycleManager({ config, registry, sessionManager });
   lifecycleManager.start(15_000); // Poll every 15 seconds
 
-  // Graceful shutdown
+  // Graceful shutdown — stop lifecycle polling; let Next.js handle process exit
   const shutdown = () => {
     lifecycleManager.stop();
-    process.exit(0);
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
 
   const services = { config, registry, sessionManager, lifecycleManager };
   globalForServices._aoServices = services;
