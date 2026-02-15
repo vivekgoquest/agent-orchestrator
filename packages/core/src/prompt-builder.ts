@@ -167,7 +167,8 @@ export function buildPrompt(config: PromptBuildConfig): string | null {
   const hasUserPrompt = Boolean(config.userPrompt);
 
   // Nothing to compose — return null for backward compatibility
-  if (!hasIssue && !hasRules && !hasUserPrompt) {
+  // (but exploratory sessions always need the exploratory prompt)
+  if (!hasIssue && !hasRules && !hasUserPrompt && !config.exploratory) {
     return null;
   }
 
