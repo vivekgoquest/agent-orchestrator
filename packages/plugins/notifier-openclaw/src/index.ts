@@ -37,6 +37,16 @@ function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+const FETCH_TIMEOUT_MS = 30_000;
+
+async function safeResponseText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return "<unreadable response body>";
+  }
+}
+
 async function postWithRetry(
   url: string,
   body: { message: string },
@@ -48,18 +58,27 @@ async function postWithRetry(
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (response.ok) return;
 
-      const text = await response.text();
+      const text = await safeResponseText(response);
       lastError = new Error(`OpenClaw POST failed (${response.status}): ${text}`);
 
       if (!isRetryableStatus(response.status)) {

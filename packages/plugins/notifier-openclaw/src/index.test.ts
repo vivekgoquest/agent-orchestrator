@@ -261,4 +261,45 @@ describe("notifier-openclaw", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("fetch timeout", () => {
+    it("passes an AbortSignal to fetch", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({ token: "tok123" });
+      await notifier.notify(makeEvent());
+
+      const opts = fetchMock.mock.calls[0][1];
+      expect(opts.signal).toBeInstanceOf(AbortSignal);
+    });
+
+    it("treats abort as a retryable network error", async () => {
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValueOnce(new DOMException("The operation was aborted", "AbortError"))
+        .mockResolvedValueOnce({ ok: true });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({ token: "tok123", retries: 1, retryDelayMs: 1 });
+      await notifier.notify(makeEvent());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("response.text() guard", () => {
+    it("uses fallback when response.text() throws", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        text: () => Promise.reject(new Error("body stream already read")),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const notifier = create({ token: "tok123", retries: 0, retryDelayMs: 1 });
+      await expect(notifier.notify(makeEvent())).rejects.toThrow(
+        "OpenClaw POST failed (400): <unreadable response body>",
+      );
+    });
+  });
 });
