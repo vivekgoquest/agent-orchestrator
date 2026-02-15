@@ -54,5 +54,4 @@ export {
   escapeAppleScript,
   validateUrl,
   readLastJsonlEntry,
-  TAIL_READ_BYTES,
 } from "./utils.js";

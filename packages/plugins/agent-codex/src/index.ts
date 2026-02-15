@@ -1,6 +1,5 @@
 import {
   shellEscape,
-  readLastJsonlEntry,
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
@@ -11,66 +10,8 @@ import {
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 const execFileAsync = promisify(execFile);
-
-// =============================================================================
-// Codex Session File Helpers
-// =============================================================================
-
-/**
- * Find the latest rollout-*.jsonl file in Codex session directory.
- * Codex stores session files at ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
- *
- * Note: Codex uses its own internal session IDs (UUIDs) unrelated to orchestrator
- * session IDs, so we just find the most recent rollout file across all dates.
- */
-async function findLatestRolloutFile(): Promise<string | null> {
-  try {
-    const codexDir = join(homedir(), ".codex", "sessions");
-    const now = new Date();
-    let mostRecentFile: { path: string; mtime: Date } | null = null;
-
-    // Try current date and previous 7 days
-    for (let daysAgo = 0; daysAgo < 7; daysAgo++) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - daysAgo);
-
-      const year = date.getFullYear().toString();
-      const month = (date.getMonth() + 1).toString().padStart(2, "0");
-      const day = date.getDate().toString().padStart(2, "0");
-
-      const dayDir = join(codexDir, year, month, day);
-
-      try {
-        const files = await readdir(dayDir);
-        const rolloutFiles = files.filter(
-          (f) => f.startsWith("rollout-") && f.endsWith(".jsonl"),
-        );
-
-        // Check all rollout files in this directory
-        for (const file of rolloutFiles) {
-          const filePath = join(dayDir, file);
-          const stats = await stat(filePath);
-
-          if (!mostRecentFile || stats.mtime > mostRecentFile.mtime) {
-            mostRecentFile = { path: filePath, mtime: stats.mtime };
-          }
-        }
-      } catch {
-        // Directory doesn't exist, try next date
-        continue;
-      }
-    }
-
-    return mostRecentFile?.path ?? null;
-  } catch {
-    return null;
-  }
-}
 
 // =============================================================================
 // Plugin Manifest
@@ -134,36 +75,15 @@ function createCodexAgent(): Agent {
       const running = await this.isProcessRunning(session.runtimeHandle);
       if (!running) return "exited";
 
-      // Process is running - check JSONL rollout file for activity
-      const rolloutFile = await findLatestRolloutFile();
-      if (!rolloutFile) {
-        // No session file found, but process is running - assume active
-        return "active";
-      }
-
-      const entry = await readLastJsonlEntry(rolloutFile);
-      if (!entry) return "idle";
-
-      // Check if file was modified recently (within 30 seconds)
-      const ageMs = Date.now() - entry.modifiedAt.getTime();
-      if (ageMs > 30_000) return "idle";
-
-      // Map Codex event types to activity states
-      // Codex JSONL events: user_message, assistant_message, tool_use, tool_result, approval_request, error
-      switch (entry.lastType) {
-        case "user_message":
-        case "tool_use":
-        case "tool_result":
-          return "active";
-        case "assistant_message":
-          return "idle";
-        case "approval_request":
-          return "waiting_input";
-        case "error":
-          return "blocked";
-        default:
-          return "active";
-      }
+      // NOTE: Codex stores rollout files in a global ~/.codex/sessions/ directory
+      // without workspace-specific scoping. When multiple Codex sessions run in
+      // parallel, we cannot reliably determine which rollout file belongs to which
+      // session. Until Codex provides per-workspace session tracking, we fall back
+      // to process-running check only. See issue #13 for details.
+      //
+      // TODO: Implement proper per-session activity detection when Codex supports it.
+      // For now, return "active" if process is running (conservative approach).
+      return "active";
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {
