@@ -10,8 +10,31 @@ import {
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { stat, access } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { constants } from "node:fs";
 
 const execFileAsync = promisify(execFile);
+
+// =============================================================================
+// OpenCode Activity Detection Helpers
+// =============================================================================
+
+/**
+ * Get modification time of OpenCode SQLite database.
+ * OpenCode stores session data in ~/.local/share/opencode/opencode.db
+ */
+async function getDatabaseMtime(): Promise<Date | null> {
+  try {
+    const dbPath = join(homedir(), ".local", "share", "opencode", "opencode.db");
+    await access(dbPath, constants.R_OK);
+    const stats = await stat(dbPath);
+    return stats.mtime;
+  } catch {
+    return null;
+  }
+}
 
 // =============================================================================
 // Plugin Manifest
@@ -64,11 +87,24 @@ function createOpenCodeAgent(): Agent {
     },
 
     async getActivityState(session: Session): Promise<ActivityState> {
-      // TODO: Implement using SQLite database at ~/.local/share/opencode/opencode.db
-      // For now, fall back to process running check
+      // Check if process is running first
       if (!session.runtimeHandle) return "exited";
       const running = await this.isProcessRunning(session.runtimeHandle);
-      return running ? "active" : "exited";
+      if (!running) return "exited";
+
+      // Process is running - check database activity
+      const dbMtime = await getDatabaseMtime();
+      if (!dbMtime) {
+        // No database found, but process is running - assume active
+        return "active";
+      }
+
+      // If database was modified within last 30 seconds, consider active
+      const ageMs = Date.now() - dbMtime.getTime();
+      if (ageMs < 30_000) return "active";
+
+      // No recent database updates - idle at prompt
+      return "idle";
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {

@@ -10,8 +10,88 @@ import {
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 const execFileAsync = promisify(execFile);
+
+// =============================================================================
+// Codex Session File Helpers
+// =============================================================================
+
+/**
+ * Find the latest rollout-*.jsonl file in Codex session directory.
+ * Codex stores session files at ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+ */
+async function findLatestRolloutFile(sessionId: string): Promise<string | null> {
+  try {
+    const codexDir = join(homedir(), ".codex", "sessions");
+    const now = new Date();
+
+    // Try current date and previous 7 days
+    for (let daysAgo = 0; daysAgo < 7; daysAgo++) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - daysAgo);
+
+      const year = date.getFullYear().toString();
+      const month = (date.getMonth() + 1).toString().padStart(2, "0");
+      const day = date.getDate().toString().padStart(2, "0");
+
+      const dayDir = join(codexDir, year, month, day);
+
+      try {
+        const files = await readdir(dayDir);
+        const rolloutFiles = files
+          .filter((f) => f.startsWith("rollout-") && f.endsWith(".jsonl"))
+          .filter((f) => f.includes(sessionId) || sessionId.startsWith(f.slice(8, -6)));
+
+        if (rolloutFiles.length > 0) {
+          // Get the most recent by mtime
+          const fileStats = await Promise.all(
+            rolloutFiles.map(async (f) => ({
+              name: f,
+              mtime: (await stat(join(dayDir, f))).mtime,
+            })),
+          );
+          fileStats.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+          return join(dayDir, fileStats[0].name);
+        }
+      } catch {
+        // Directory doesn't exist, try next date
+        continue;
+      }
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the last entry from a JSONL file and return type + mtime.
+ */
+async function readLastJsonlEntry(
+  filePath: string,
+): Promise<{ lastType: string; modifiedAt: Date } | null> {
+  try {
+    const content = await readFile(filePath, "utf-8");
+    const lines = content.trim().split("\n").filter(Boolean);
+    if (lines.length === 0) return null;
+
+    const lastLine = lines[lines.length - 1];
+    const entry = JSON.parse(lastLine) as { type?: string };
+    const stats = await stat(filePath);
+
+    return {
+      lastType: entry.type ?? "unknown",
+      modifiedAt: stats.mtime,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // =============================================================================
 // Plugin Manifest
@@ -70,11 +150,41 @@ function createCodexAgent(): Agent {
     },
 
     async getActivityState(session: Session): Promise<ActivityState> {
-      // TODO: Implement using JSONL rollout files at ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
-      // For now, fall back to process running check
+      // Check if process is running first
       if (!session.runtimeHandle) return "exited";
       const running = await this.isProcessRunning(session.runtimeHandle);
-      return running ? "active" : "exited";
+      if (!running) return "exited";
+
+      // Process is running - check JSONL rollout file for activity
+      const rolloutFile = await findLatestRolloutFile(session.id);
+      if (!rolloutFile) {
+        // No session file found, but process is running - assume active
+        return "active";
+      }
+
+      const entry = await readLastJsonlEntry(rolloutFile);
+      if (!entry) return "idle";
+
+      // Check if file was modified recently (within 30 seconds)
+      const ageMs = Date.now() - entry.modifiedAt.getTime();
+      if (ageMs > 30_000) return "idle";
+
+      // Map Codex event types to activity states
+      // Codex JSONL events: user_message, assistant_message, tool_use, tool_result, approval_request, error
+      switch (entry.lastType) {
+        case "user_message":
+        case "tool_use":
+        case "tool_result":
+          return "active";
+        case "assistant_message":
+          return "idle";
+        case "approval_request":
+          return "waiting_input";
+        case "error":
+          return "blocked";
+        default:
+          return "active";
+      }
     },
 
     async isProcessRunning(handle: RuntimeHandle): Promise<boolean> {

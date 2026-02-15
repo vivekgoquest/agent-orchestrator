@@ -46,6 +46,7 @@ beforeEach(() => {
     getLaunchCommand: vi.fn().mockReturnValue("mock-agent --start"),
     getEnvironment: vi.fn().mockReturnValue({ AGENT_VAR: "1" }),
     detectActivity: vi.fn().mockReturnValue("active"),
+    getActivityState: vi.fn().mockResolvedValue("active"),
     isProcessRunning: vi.fn().mockResolvedValue(true),
     isProcessing: vi.fn().mockResolvedValue(false),
     getSessionInfo: vi.fn().mockResolvedValue(null),
