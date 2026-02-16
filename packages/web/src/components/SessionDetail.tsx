@@ -290,36 +290,79 @@ function ClientTimestamps({
 // ── PR Card ──────────────────────────────────────────────────────────
 
 function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
-  const [sendingCommentUrl, setSendingCommentUrl] = useState<string | null>(null);
-  const [sentCommentUrl, setSentCommentUrl] = useState<string | null>(null);
-  const [errorCommentUrl, setErrorCommentUrl] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sendingComments, setSendingComments] = useState<Set<string>>(new Set());
+  const [sentComments, setSentComments] = useState<Set<string>>(new Set());
+  const [errorComments, setErrorComments] = useState<Set<string>>(new Set());
+  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      timersRef.current.forEach((timer) => clearTimeout(timer));
     };
   }, []);
 
   const handleAskAgentToFix = async (comment: { url: string; path: string; body: string }) => {
-    setSendingCommentUrl(comment.url);
-    setErrorCommentUrl(null);
-    setSentCommentUrl(null);
+    // Clear any existing feedback state for this comment
+    setSentComments((prev) => {
+      const next = new Set(prev);
+      next.delete(comment.url);
+      return next;
+    });
+    setErrorComments((prev) => {
+      const next = new Set(prev);
+      next.delete(comment.url);
+      return next;
+    });
+
+    // Mark as sending
+    setSendingComments((prev) => new Set(prev).add(comment.url));
 
     await askAgentToFix(
       sessionId,
       comment,
       () => {
-        setSendingCommentUrl(null);
-        setSentCommentUrl(comment.url);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setSentCommentUrl(null), 3000);
+        // Success: remove from sending, add to sent
+        setSendingComments((prev) => {
+          const next = new Set(prev);
+          next.delete(comment.url);
+          return next;
+        });
+        setSentComments((prev) => new Set(prev).add(comment.url));
+
+        // Clear sent state after 3 seconds
+        const existingTimer = timersRef.current.get(comment.url);
+        if (existingTimer) clearTimeout(existingTimer);
+        const timer = setTimeout(() => {
+          setSentComments((prev) => {
+            const next = new Set(prev);
+            next.delete(comment.url);
+            return next;
+          });
+          timersRef.current.delete(comment.url);
+        }, 3000);
+        timersRef.current.set(comment.url, timer);
       },
       () => {
-        setSendingCommentUrl(null);
-        setErrorCommentUrl(comment.url);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setErrorCommentUrl(null), 3000);
+        // Error: remove from sending, add to error
+        setSendingComments((prev) => {
+          const next = new Set(prev);
+          next.delete(comment.url);
+          return next;
+        });
+        setErrorComments((prev) => new Set(prev).add(comment.url));
+
+        // Clear error state after 3 seconds
+        const existingTimer = timersRef.current.get(comment.url);
+        if (existingTimer) clearTimeout(existingTimer);
+        const timer = setTimeout(() => {
+          setErrorComments((prev) => {
+            const next = new Set(prev);
+            next.delete(comment.url);
+            return next;
+          });
+          timersRef.current.delete(comment.url);
+        }, 3000);
+        timersRef.current.set(comment.url, timer);
       },
     );
   };
@@ -433,21 +476,21 @@ function PRCard({ pr, sessionId }: { pr: DashboardPR; sessionId: string }) {
                       </p>
                       <button
                         onClick={() => handleAskAgentToFix(c)}
-                        disabled={sendingCommentUrl === c.url}
+                        disabled={sendingComments.has(c.url)}
                         className={cn(
                           "mt-2 rounded-md px-3 py-1 text-[10px] font-medium transition-colors",
-                          sentCommentUrl === c.url
+                          sentComments.has(c.url)
                             ? "bg-[var(--color-accent-green)] text-white"
-                            : errorCommentUrl === c.url
+                            : errorComments.has(c.url)
                               ? "bg-[var(--color-accent-red)] text-white"
                               : "bg-[var(--color-accent-blue)] text-white hover:opacity-90 disabled:opacity-50",
                         )}
                       >
-                        {sendingCommentUrl === c.url
+                        {sendingComments.has(c.url)
                           ? "Sending..."
-                          : sentCommentUrl === c.url
+                          : sentComments.has(c.url)
                             ? "Sent!"
-                            : errorCommentUrl === c.url
+                            : errorComments.has(c.url)
                               ? "Failed"
                               : "Ask Agent to Fix"}
                       </button>
