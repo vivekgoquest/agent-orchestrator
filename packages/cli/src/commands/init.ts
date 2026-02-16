@@ -268,9 +268,10 @@ export function registerInit(program: Command): void {
           projects: {} as Record<string, unknown>,
         };
 
+        let projectPath = "";
         if (projectId) {
           const repo = await prompt(rl, "GitHub repo (owner/repo)", env.ownerRepo || "");
-          const path = await prompt(
+          projectPath = await prompt(
             rl,
             "Local path to repo",
             env.isGitRepo ? workingDir : `~/${projectId}`,
@@ -290,7 +291,7 @@ export function registerInit(program: Command): void {
 
           const projectConfig: Record<string, unknown> = {
             repo,
-            path,
+            path: projectPath,
             defaultBranch,
           };
 
@@ -324,7 +325,14 @@ export function registerInit(program: Command): void {
           { name: "Git", pass: (await execSilent("git", ["--version"])) !== null },
           { name: "tmux", pass: env.hasTmux },
           { name: "GitHub CLI", pass: env.hasGh },
-          { name: "Repo path exists", pass: existsSync(expandHome(path)) },
+          ...(projectPath
+            ? [
+                {
+                  name: "Repo path exists",
+                  pass: existsSync(projectPath.replace(/^~/, process.env.HOME || "")),
+                },
+              ]
+            : []),
         ];
 
         for (const { name, pass } of checks) {
