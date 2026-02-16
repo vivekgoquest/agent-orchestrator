@@ -493,7 +493,7 @@ describe("status command", () => {
     expect(parsed[0].activity).toBe("active");
   });
 
-  it("treats assistant lastMessageType as idle, not active", async () => {
+  it("treats assistant lastMessageType as ready, not active", async () => {
     const sessionDir = join(tmpDir, "my-app-sessions");
     mkdirSync(sessionDir, { recursive: true });
     writeFileSync(
@@ -518,6 +518,6 @@ describe("status command", () => {
 
     const jsonCalls = consoleSpy.mock.calls.map((c) => c[0]).join("");
     const parsed = JSON.parse(jsonCalls);
-    expect(parsed[0].activity).toBe("idle");
+    expect(parsed[0].activity).toBe("ready");
   });
 });

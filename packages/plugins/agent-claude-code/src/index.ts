@@ -435,8 +435,8 @@ async function findClaudeProcess(handle: RuntimeHandle): Promise<number | null> 
 
 /** Classify Claude Code's activity state from terminal output (pure, sync). */
 function classifyTerminalOutput(terminalOutput: string): ActivityState {
-  // Empty output — can't determine state, assume active (safe default)
-  if (!terminalOutput.trim()) return "active";
+  // Empty output — can't determine state, assume ready (safe default)
+  if (!terminalOutput.trim()) return "ready";
 
   const lines = terminalOutput.trim().split("\n");
   const lastLine = lines[lines.length - 1]?.trim() ?? "";

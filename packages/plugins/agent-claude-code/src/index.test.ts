@@ -323,12 +323,12 @@ describe("isProcessRunning", () => {
 describe("detectActivity", () => {
   const agent = create();
 
-  it("returns active for empty terminal output", () => {
-    expect(agent.detectActivity("")).toBe("active");
+  it("returns ready for empty terminal output", () => {
+    expect(agent.detectActivity("")).toBe("ready");
   });
 
-  it("returns active for whitespace-only terminal output", () => {
-    expect(agent.detectActivity("   \n  \n  ")).toBe("active");
+  it("returns ready for whitespace-only terminal output", () => {
+    expect(agent.detectActivity("   \n  \n  ")).toBe("ready");
   });
 
   it("returns active when 'esc to interrupt' is visible", () => {
