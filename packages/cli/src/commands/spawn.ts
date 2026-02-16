@@ -317,7 +317,7 @@ export function registerBatchSpawn(program: Command): void {
           skipped.push({ issue, existing: "(this batch)" });
           continue;
         }
-        const existing = await findSessionForIssue(config.dataDir, issue, allTmux);
+        const existing = await findSessionForIssue(config.dataDir, issue, allTmux, projectId);
         if (existing) {
           console.log(chalk.yellow(`  Skip ${issue} — already has session: ${existing}`));
           skipped.push({ issue, existing });

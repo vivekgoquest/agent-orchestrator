@@ -43,6 +43,7 @@ export async function findSessionForIssue(
   sessionDir: string,
   issueId: string,
   tmuxSessions: string[],
+  projectId?: string,
 ): Promise<string | null> {
   const lower = issueId.toLowerCase();
   const files = await listSessionFiles(sessionDir);
@@ -50,6 +51,8 @@ export async function findSessionForIssue(
     const name = basename(file);
     if (!tmuxSessions.includes(name)) continue;
     const meta = readMetadata(join(sessionDir, file));
+    // Skip sessions from other projects if projectId is specified
+    if (projectId && meta?.project && meta.project !== projectId) continue;
     if (meta?.issue && meta.issue.toLowerCase() === lower) {
       return name;
     }
