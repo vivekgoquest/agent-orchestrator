@@ -512,6 +512,7 @@ describe("status command", () => {
       summary: "Working on feature",
       agentSessionId: "abc",
       lastMessageType: "assistant",
+      lastLogModified: new Date(), // Fresh, not stale
     });
 
     await program.parseAsync(["node", "test", "status", "--json"]);
@@ -519,5 +520,36 @@ describe("status command", () => {
     const jsonCalls = consoleSpy.mock.calls.map((c) => c[0]).join("");
     const parsed = JSON.parse(jsonCalls);
     expect(parsed[0].activity).toBe("ready");
+  });
+
+  it("treats stale assistant lastMessageType as idle, not ready", async () => {
+    const sessionDir = join(tmpDir, "my-app-sessions");
+    mkdirSync(sessionDir, { recursive: true });
+    writeFileSync(
+      join(sessionDir, "app-1"),
+      "worktree=/tmp/wt\nbranch=feat/asst\nstatus=working\n",
+    );
+
+    mockTmux.mockImplementation(async (...args: string[]) => {
+      if (args[0] === "list-sessions") return "app-1";
+      if (args[0] === "display-message") return String(Math.floor(Date.now() / 1000));
+      return null;
+    });
+    mockGit.mockResolvedValue("feat/asst");
+
+    // Session that finished 60 seconds ago (stale)
+    const staleTime = new Date(Date.now() - 60_000);
+    mockIntrospect.mockResolvedValue({
+      summary: "Working on feature",
+      agentSessionId: "abc",
+      lastMessageType: "assistant",
+      lastLogModified: staleTime,
+    });
+
+    await program.parseAsync(["node", "test", "status", "--json"]);
+
+    const jsonCalls = consoleSpy.mock.calls.map((c) => c[0]).join("");
+    const parsed = JSON.parse(jsonCalls);
+    expect(parsed[0].activity).toBe("idle");
   });
 });
