@@ -17,6 +17,23 @@ Open-source system for orchestrating parallel AI coding agents. Agent-agnostic, 
 
 ## Quick Start
 
+**Option 1: One-command setup (recommended)**
+
+```bash
+# Clone and setup
+git clone https://github.com/ComposioHQ/agent-orchestrator.git
+cd agent-orchestrator
+./scripts/setup.sh
+
+# Initialize in your project
+cd /path/to/your/project
+ao init --auto
+gh auth login  # Authenticate GitHub CLI
+ao start       # Launch dashboard
+```
+
+**Option 2: Manual setup**
+
 ```bash
 # Install dependencies
 pnpm install
@@ -24,17 +41,13 @@ pnpm install
 # Build all packages
 pnpm build
 
-# Copy and configure
-cp agent-orchestrator.yaml.example agent-orchestrator.yaml
-# Edit agent-orchestrator.yaml with your settings (see Configuration section)
+# Link CLI globally
+npm link -g ./packages/cli
 
-# Start the web dashboard
-cd packages/web
-pnpm dev
-
-# Or use the CLI
-pnpm --filter @composio/ao-cli build
-./packages/cli/bin/ao.js start
+# Initialize in your project
+cd /path/to/your/project
+ao init --auto
+ao start
 ```
 
 ## Configuration
