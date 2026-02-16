@@ -82,13 +82,13 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
   const raw = parseMetadataFile(content);
 
   return {
+    project: raw["project"] ?? "",
     worktree: raw["worktree"] ?? "",
     branch: raw["branch"] ?? "",
     status: raw["status"] ?? "unknown",
     issue: raw["issue"],
     pr: raw["pr"],
     summary: raw["summary"],
-    project: raw["project"],
     createdAt: raw["createdAt"],
     runtimeHandle: raw["runtimeHandle"],
   };
@@ -118,6 +118,7 @@ export function writeMetadata(
   mkdirSync(dirname(path), { recursive: true });
 
   const data: Record<string, string> = {
+    project: metadata.project,
     worktree: metadata.worktree,
     branch: metadata.branch,
     status: metadata.status,
@@ -126,7 +127,6 @@ export function writeMetadata(
   if (metadata.issue) data["issue"] = metadata.issue;
   if (metadata.pr) data["pr"] = metadata.pr;
   if (metadata.summary) data["summary"] = metadata.summary;
-  if (metadata.project) data["project"] = metadata.project;
   if (metadata.createdAt) data["createdAt"] = metadata.createdAt;
   if (metadata.runtimeHandle) data["runtimeHandle"] = metadata.runtimeHandle;
 
