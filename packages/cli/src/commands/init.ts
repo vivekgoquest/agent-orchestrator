@@ -156,6 +156,13 @@ export function registerInit(program: Command): void {
         process.exit(1);
       }
 
+      // Validate --smart requires --auto
+      if (opts.smart && !opts.auto) {
+        console.error(chalk.red("Error: --smart requires --auto"));
+        console.log(chalk.dim("Use: ao init --auto --smart"));
+        process.exit(1);
+      }
+
       // Handle --auto mode
       if (opts.auto) {
         await handleAutoMode(outputPath, opts.smart || false);
@@ -317,7 +324,7 @@ export function registerInit(program: Command): void {
           { name: "Git", pass: (await execSilent("git", ["--version"])) !== null },
           { name: "tmux", pass: env.hasTmux },
           { name: "GitHub CLI", pass: env.hasGh },
-          { name: "Repo path exists", pass: env.isGitRepo || !projectId },
+          { name: "Repo path exists", pass: existsSync(expandHome(path)) },
         ];
 
         for (const { name, pass } of checks) {
