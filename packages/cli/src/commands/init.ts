@@ -105,11 +105,11 @@ async function detectEnvironment(workingDir: string): Promise<EnvironmentInfo> {
   // Detect the actual default branch (main/master/next)
   const defaultBranch = isGitRepo ? await detectDefaultBranch(workingDir, ownerRepo) : null;
 
-  // Check for tmux
-  const hasTmux = (await execSilent("which", ["tmux"])) !== null;
+  // Check for tmux (direct invocation more portable than 'which')
+  const hasTmux = (await execSilent("tmux", ["-V"])) !== null;
 
-  // Check for gh CLI
-  const hasGh = (await execSilent("which", ["gh"])) !== null;
+  // Check for gh CLI (direct invocation more portable than 'which')
+  const hasGh = (await execSilent("gh", ["--version"])) !== null;
 
   // Check gh auth status
   let ghAuthed = false;
