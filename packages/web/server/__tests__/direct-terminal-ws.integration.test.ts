@@ -13,6 +13,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
+import { request, type IncomingMessage } from "node:http";
 import { WebSocket } from "ws";
 import { findTmux } from "../tmux-utils.js";
 import { createDirectTerminalServer, type DirectTerminalServer } from "../direct-terminal-ws.js";
@@ -24,11 +25,11 @@ const TEST_HASH_SESSION = `abcdef123456-${TEST_SESSION}`;
 let terminal: DirectTerminalServer;
 let port: number;
 
-function fetch(path: string): Promise<{ status: number; body: string }> {
+function httpGet(path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = require("node:http").request(
+    const req = request(
       { hostname: "localhost", port, path, method: "GET", timeout: 3000 },
-      (res: import("node:http").IncomingMessage) => {
+      (res: IncomingMessage) => {
         let body = "";
         res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
         res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
@@ -111,7 +112,7 @@ afterAll(() => {
 
 describe("health endpoint", () => {
   it("GET /health returns 200 with active session count", async () => {
-    const res = await fetch("/health");
+    const res = await httpGet("/health");
 
     expect(res.status).toBe(200);
     const data = JSON.parse(res.body);
@@ -251,7 +252,7 @@ describe("WebSocket terminal connection", () => {
 
 describe("404 for unknown paths", () => {
   it("returns 404 for unknown HTTP path", async () => {
-    const res = await fetch("/unknown-path");
+    const res = await httpGet("/unknown-path");
     expect(res.status).toBe(404);
   });
 });
