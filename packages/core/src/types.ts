@@ -735,6 +735,7 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
+  agentConfig?: AgentSpecificConfig;
 }
 
 export interface ProjectConfig {
