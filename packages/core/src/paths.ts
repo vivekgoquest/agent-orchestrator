@@ -107,7 +107,7 @@ export function getWorktreesDir(configPath: string, projectPath: string): string
  * Format: ~/.agent-orchestrator/{hash}-{projectId}/archive
  */
 export function getArchiveDir(configPath: string, projectPath: string): string {
-  return join(getProjectBaseDir(configPath, projectPath), "archive");
+  return join(getSessionsDir(configPath, projectPath), "archive");
 }
 
 /**

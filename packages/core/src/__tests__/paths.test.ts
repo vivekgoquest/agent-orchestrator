@@ -271,10 +271,10 @@ describe("Path Construction", () => {
     expect(worktreesDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/worktrees$/);
   });
 
-  it("getArchiveDir returns {baseDir}/archive", () => {
+  it("getArchiveDir returns {baseDir}/sessions/archive", () => {
     const archiveDir = getArchiveDir(configPath, "/repos/integrator");
 
-    expect(archiveDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/archive$/);
+    expect(archiveDir).toMatch(/\.agent-orchestrator\/[a-f0-9]{12}-integrator\/sessions\/archive$/);
   });
 
   it("getOriginFilePath returns {baseDir}/.origin", () => {
