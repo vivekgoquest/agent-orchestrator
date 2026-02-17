@@ -43,9 +43,11 @@ vi.mock("@composio/ao-core", async (importOriginal) => {
 });
 
 let tmpDir: string;
+let sessionsDir: string;
 
 import { Command } from "commander";
 import { registerReviewCheck } from "../../src/commands/review-check.js";
+import { getSessionsDir } from "@composio/ao-core";
 
 let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -79,6 +81,10 @@ beforeEach(() => {
     reactions: {},
   } as Record<string, unknown>;
 
+  // Calculate and create sessions directory for hash-based architecture
+  sessionsDir = getSessionsDir(configPath, join(tmpDir, "main-repo"));
+  mkdirSync(sessionsDir, { recursive: true });
+
   program = new Command();
   program.exitOverride();
   registerReviewCheck(program);
@@ -102,7 +108,7 @@ afterEach(() => {
 describe("review-check command", () => {
   it("reports no pending reviews when none exist", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -127,7 +133,7 @@ describe("review-check command", () => {
 
   it("finds sessions with pending review comments", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -153,9 +159,7 @@ describe("review-check command", () => {
   });
 
   it("skips sessions without PR metadata", async () => {
-    const sessionDir = join(tmpDir, "my-app-sessions");
-    mkdirSync(sessionDir, { recursive: true });
-    writeFileSync(join(sessionDir, "app-1"), "branch=feat/fix\nstatus=working\n");
+    writeFileSync(join(sessionsDir, "app-1"), "branch=feat/fix\nstatus=working\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1";
@@ -189,7 +193,7 @@ describe("review-check command", () => {
 
   it("sends fix prompt when not in dry-run mode", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -225,7 +229,7 @@ describe("review-check command", () => {
 
   it("handles gh returning null (API failure)", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 
@@ -244,7 +248,7 @@ describe("review-check command", () => {
 
   it("handles malformed GraphQL response gracefully", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/my-app/pull/10\n",
     );
 

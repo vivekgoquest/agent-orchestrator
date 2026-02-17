@@ -39,9 +39,11 @@ vi.mock("@composio/ao-core", async (importOriginal) => {
 });
 
 let tmpDir: string;
+let sessionsDir: string;
 
 import { Command } from "commander";
 import { registerSession } from "../../src/commands/session.js";
+import { getSessionsDir } from "@composio/ao-core";
 
 let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -76,6 +78,10 @@ beforeEach(() => {
   } as Record<string, unknown>;
 
   mkdirSync(join(tmpDir, "main-repo"), { recursive: true });
+
+  // Calculate and create sessions directory for hash-based architecture
+  sessionsDir = getSessionsDir(configPath, join(tmpDir, "main-repo"));
+  mkdirSync(sessionsDir, { recursive: true });
 
   program = new Command();
   program.exitOverride();
@@ -117,7 +123,7 @@ describe("session ls", () => {
   });
 
   it("lists sessions with metadata", async () => {
-    writeFileSync(join(tmpDir, "app-1"), "branch=feat/INT-100\nstatus=working\n");
+    writeFileSync(join(sessionsDir, "app-1"), "branch=feat/INT-100\nstatus=working\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1";
@@ -137,7 +143,7 @@ describe("session ls", () => {
   });
 
   it("gets live branch from worktree", async () => {
-    writeFileSync(join(tmpDir, "app-1"), "worktree=/tmp/wt\nbranch=old\nstatus=idle\n");
+    writeFileSync(join(sessionsDir, "app-1"), "worktree=/tmp/wt\nbranch=old\nstatus=idle\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1";
@@ -153,7 +159,7 @@ describe("session ls", () => {
 
   it("shows PR URL when available", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=fix\nstatus=pr_open\npr=https://github.com/org/repo/pull/42\n",
     );
 
@@ -178,7 +184,7 @@ describe("session kill", () => {
   });
 
   it("kills tmux session and archives metadata", async () => {
-    writeFileSync(join(tmpDir, "app-1"), "worktree=/tmp/wt\nbranch=feat/fix\nstatus=working\n");
+    writeFileSync(join(sessionsDir, "app-1"), "worktree=/tmp/wt\nbranch=feat/fix\nstatus=working\n");
 
     mockTmux.mockResolvedValue("");
     mockGit.mockResolvedValue(null);
@@ -189,9 +195,9 @@ describe("session kill", () => {
     expect(output).toContain("Killed tmux session: app-1");
     expect(output).toContain("Archived metadata");
 
-    // Original file should be gone, archive should exist
-    expect(existsSync(join(tmpDir, "app-1"))).toBe(false);
-    const archiveDir = join(tmpDir, "archive");
+    // Original file should be gone, archive should exist inside sessionsDir
+    expect(existsSync(join(sessionsDir, "app-1"))).toBe(false);
+    const archiveDir = join(sessionsDir, "archive");
     expect(existsSync(archiveDir)).toBe(true);
     const archived = readdirSync(archiveDir);
     expect(archived.length).toBe(1);
@@ -199,7 +205,7 @@ describe("session kill", () => {
   });
 
   it("removes worktree when metadata has worktree path", async () => {
-    writeFileSync(join(tmpDir, "app-1"), "worktree=/tmp/test-wt\nbranch=main\n");
+    writeFileSync(join(sessionsDir, "app-1"), "worktree=/tmp/test-wt\nbranch=main\n");
 
     mockTmux.mockResolvedValue("");
     mockGit.mockResolvedValue(null);
@@ -216,7 +222,7 @@ describe("session kill", () => {
 describe("session cleanup", () => {
   it("kills sessions with merged PRs", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\nstatus=merged\npr=https://github.com/org/repo/pull/42\n",
     );
 
@@ -237,7 +243,7 @@ describe("session cleanup", () => {
 
   it("does not kill sessions with open PRs", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\nstatus=pr_open\npr=https://github.com/org/repo/pull/42\n",
     );
 
@@ -255,7 +261,7 @@ describe("session cleanup", () => {
 
   it("dry run shows what would be cleaned without doing it", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/fix\npr=https://github.com/org/repo/pull/42\n",
     );
 
@@ -271,16 +277,16 @@ describe("session cleanup", () => {
     expect(output).toContain("Would kill app-1");
 
     // Metadata should still exist
-    expect(existsSync(join(tmpDir, "app-1"))).toBe(true);
+    expect(existsSync(join(sessionsDir, "app-1"))).toBe(true);
   });
 
   it("continues cleaning remaining sessions when one kill fails", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "branch=feat/a\npr=https://github.com/org/repo/pull/10\n",
     );
     writeFileSync(
-      join(tmpDir, "app-2"),
+      join(sessionsDir, "app-2"),
       "branch=feat/b\npr=https://github.com/org/repo/pull/20\n",
     );
 

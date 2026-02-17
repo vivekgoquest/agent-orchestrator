@@ -86,9 +86,12 @@ vi.mock("../../src/lib/plugins.js", () => ({
 }));
 
 let tmpDir: string;
+let sessionsDir: string;
 
 import { Command } from "commander";
 import { registerStatus } from "../../src/commands/status.js";
+import { getSessionsDir } from "@composio/ao-core";
+import { mkdirSync } from "node:fs";
 
 let program: Command;
 let consoleSpy: ReturnType<typeof vi.spyOn>;
@@ -122,6 +125,10 @@ beforeEach(() => {
     notificationRouting: {},
     reactions: {},
   } as Record<string, unknown>;
+
+  // Calculate and create sessions directory for hash-based architecture
+  sessionsDir = getSessionsDir(configPath, "/home/user/my-app");
+  mkdirSync(sessionsDir, { recursive: true });
 
   program = new Command();
   program.exitOverride();
@@ -173,11 +180,11 @@ describe("status command", () => {
   it("displays sessions from tmux with metadata", async () => {
     // Create metadata files
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt/app-1\nbranch=feat/INT-100\nstatus=working\nissue=INT-100\n",
     );
     writeFileSync(
-      join(tmpDir, "app-2"),
+      join(sessionsDir, "app-2"),
       "worktree=/tmp/wt/app-2\nbranch=feat/INT-200\nstatus=pr_open\npr=https://github.com/org/repo/pull/42\n",
     );
 
@@ -204,7 +211,7 @@ describe("status command", () => {
   });
 
   it("counts total sessions correctly", async () => {
-    writeFileSync(join(tmpDir, "app-1"), "branch=main\nstatus=idle\n");
+    writeFileSync(join(sessionsDir, "app-1"), "branch=main\nstatus=idle\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1";
@@ -220,8 +227,8 @@ describe("status command", () => {
   });
 
   it("shows plural for multiple sessions", async () => {
-    writeFileSync(join(tmpDir, "app-1"), "branch=a\nstatus=idle\n");
-    writeFileSync(join(tmpDir, "app-2"), "branch=b\nstatus=idle\n");
+    writeFileSync(join(sessionsDir, "app-1"), "branch=a\nstatus=idle\n");
+    writeFileSync(join(sessionsDir, "app-2"), "branch=b\nstatus=idle\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1\napp-2";
@@ -238,7 +245,7 @@ describe("status command", () => {
 
   it("prefers live branch over metadata branch", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=old-branch\nstatus=working\n",
     );
 
@@ -256,7 +263,7 @@ describe("status command", () => {
   });
 
   it("shows table header with column names", async () => {
-    writeFileSync(join(tmpDir, "app-1"), "branch=main\nstatus=idle\n");
+    writeFileSync(join(sessionsDir, "app-1"), "branch=main\nstatus=idle\n");
 
     mockTmux.mockImplementation(async (...args: string[]) => {
       if (args[0] === "list-sessions") return "app-1";
@@ -277,7 +284,7 @@ describe("status command", () => {
 
   it("shows PR number, CI status, review decision, and threads", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/test\nstatus=working\n",
     );
 
@@ -330,7 +337,7 @@ describe("status command", () => {
 
   it("shows failing CI and changes_requested review", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/broken\nstatus=working\n",
     );
 
@@ -365,7 +372,7 @@ describe("status command", () => {
 
   it("handles SCM errors gracefully", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/err\nstatus=working\n",
     );
 
@@ -388,7 +395,7 @@ describe("status command", () => {
 
   it("outputs JSON with enriched fields", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/json\nstatus=working\n",
     );
 
@@ -426,7 +433,7 @@ describe("status command", () => {
 
   it("falls back to PR number from metadata URL when SCM fails", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/pr-meta\nstatus=working\npr=https://github.com/org/repo/pull/99\n",
     );
 
@@ -448,7 +455,7 @@ describe("status command", () => {
 
   it("shows null pendingThreads when getPendingComments fails", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/thr-err\nstatus=working\n",
     );
 
@@ -483,7 +490,7 @@ describe("status command", () => {
 
   it("falls back to metadata status for activity when introspection unavailable", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/meta-act\nstatus=working\n",
     );
 
@@ -507,7 +514,7 @@ describe("status command", () => {
 
   it("treats assistant lastMessageType as idle, not active", async () => {
     writeFileSync(
-      join(tmpDir, "app-1"),
+      join(sessionsDir, "app-1"),
       "worktree=/tmp/wt\nbranch=feat/asst\nstatus=working\n",
     );
 
