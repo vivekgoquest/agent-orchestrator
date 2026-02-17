@@ -451,14 +451,14 @@ describe("hash-prefixed session resolution", () => {
   it("resolves hash-prefixed tmux session by suffix match", async () => {
     // Create a session that only exists with a hash prefix (no exact match)
     const hashOnlySession = `ao-hashtest-${process.pid}`;
-    const hashPrefixedName = `deadbeef-${hashOnlySession}`;
+    const hashPrefixedName = `deadbeef0123-${hashOnlySession}`;
 
     execFileSync(TMUX, ["new-session", "-d", "-s", hashPrefixedName, "-x", "80", "-y", "24"], { timeout: 5000 });
 
     try {
       const ws = await connectWs(hashOnlySession);
 
-      // Should have resolved via suffix match and connected
+      // Should have resolved via hash-prefix match and connected
       const data = await waitForWsData(ws);
       expect(data.length).toBeGreaterThan(0);
 
@@ -470,7 +470,7 @@ describe("hash-prefixed session resolution", () => {
 
   it("can send input through hash-resolved session", async () => {
     const hashOnlySession = `ao-hashcmd-${process.pid}`;
-    const hashPrefixedName = `cafebabe-${hashOnlySession}`;
+    const hashPrefixedName = `cafebabe0123-${hashOnlySession}`;
 
     execFileSync(TMUX, ["new-session", "-d", "-s", hashPrefixedName, "-x", "80", "-y", "24"], { timeout: 5000 });
 
@@ -491,7 +491,7 @@ describe("hash-prefixed session resolution", () => {
 
   it("uses user-facing ID (not hash name) as activeSessions key", async () => {
     const hashOnlySession = `ao-hashkey-${process.pid}`;
-    const hashPrefixedName = `face1234-${hashOnlySession}`;
+    const hashPrefixedName = `face12340000-${hashOnlySession}`;
 
     execFileSync(TMUX, ["new-session", "-d", "-s", hashPrefixedName, "-x", "80", "-y", "24"], { timeout: 5000 });
 
@@ -510,16 +510,16 @@ describe("hash-prefixed session resolution", () => {
   });
 
   it("does NOT cross-match ao-1 to hash-ao-15 via prefix", async () => {
-    // Create "deadbeef-ao-test-15-PID" but NOT "ao-test-1-PID"
+    // Create "deadbeef0123-ao-test-15-PID" but NOT "ao-test-1-PID"
     // Connecting as "ao-test-1-PID" should fail (not match ao-test-15-PID)
     const session15 = `ao-crosstest-15-${process.pid}`;
-    const hashSession15 = `deadbeef-${session15}`;
+    const hashSession15 = `deadbeef01ab-${session15}`;
     const session1 = `ao-crosstest-1-${process.pid}`;
 
     execFileSync(TMUX, ["new-session", "-d", "-s", hashSession15, "-x", "80", "-y", "24"], { timeout: 5000 });
 
     try {
-      // ao-crosstest-1-PID should NOT resolve to deadbeef-ao-crosstest-15-PID
+      // ao-crosstest-1-PID should NOT resolve to deadbeef01ab-ao-crosstest-15-PID
       const ws = new WebSocket(`ws://localhost:${port}/ws?session=${session1}`);
       const result = await waitForWsClose(ws);
 

@@ -423,7 +423,7 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "8474d6f29887-ao-15\n8474d6f29887-ao-16\nao-orchestrator\n";
+          return "8474d6f29887-ao-15\na1b2c3d4e5f6-ao-16\nao-orchestrator\n";
         });
 
       const result = resolveTmuxSession("ao-15", TMUX, mockExec);
@@ -431,8 +431,8 @@ describe("resolveTmuxSession", () => {
       expect(result).toBe("8474d6f29887-ao-15");
     });
 
-    it("uses endsWith for suffix matching (not contains)", () => {
-      // "ao-1" should NOT match "8474d6f29887-ao-15" because "-ao-15" doesn't end with "-ao-1"
+    it("uses exact match after hash prefix (not endsWith)", () => {
+      // "ao-1" should NOT match "8474d6f29887-ao-15" because substring(13) is "ao-15" not "ao-1"
       const mockExec = vi.fn()
         .mockImplementationOnce(() => {
           throw new Error("session not found");
@@ -446,6 +446,54 @@ describe("resolveTmuxSession", () => {
       expect(result).toBeNull();
     });
 
+    it("does NOT match ambiguous suffixes (bugbot: hash-my-app-1 vs app-1)", () => {
+      // This is the critical bugbot fix: "hash-my-app-1" ends with "-app-1"
+      // but the hash prefix is not a valid 12-char hex string, so it shouldn't match.
+      // A user looking up "app-1" should NOT be connected to "hash-my-app-1".
+      const mockExec = vi.fn()
+        .mockImplementationOnce(() => {
+          throw new Error("session not found");
+        })
+        .mockImplementationOnce(() => {
+          return "nonhexprefix-my-app-1\n8474d6f29887-app-1\n";
+        });
+
+      // Should match the one with valid hash prefix, not the ambiguous one
+      expect(resolveTmuxSession("app-1", TMUX, mockExec)).toBe("8474d6f29887-app-1");
+    });
+
+    it("rejects session names where hash prefix is not 12-char hex", () => {
+      const mockExec = vi.fn()
+        .mockImplementationOnce(() => {
+          throw new Error("session not found");
+        })
+        .mockImplementationOnce(() => {
+          // These look like hash-prefixed but aren't valid 12-char hex
+          return [
+            "short-ao-15",                   // too short
+            "toolonghashprefix-ao-15",        // too long
+            "ABCDEF123456-ao-15",             // uppercase hex (not matching [a-f0-9])
+            "zzzzzzzzzzzz-ao-15",             // not hex chars
+            "8474d6f2988-ao-15",              // 11 chars (one short)
+            "8474d6f29887a-ao-15",            // 13 chars (one extra)
+          ].join("\n") + "\n";
+        });
+
+      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBeNull();
+    });
+
+    it("only matches valid 12-char lowercase hex prefix", () => {
+      const mockExec = vi.fn()
+        .mockImplementationOnce(() => {
+          throw new Error("session not found");
+        })
+        .mockImplementationOnce(() => {
+          return "abcdef012345-ao-15\n";
+        });
+
+      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBe("abcdef012345-ao-15");
+    });
+
     it("matches the correct session among many", () => {
       const mockExec = vi.fn()
         .mockImplementationOnce(() => {
@@ -453,30 +501,30 @@ describe("resolveTmuxSession", () => {
         })
         .mockImplementationOnce(() => {
           return [
-            "abc123-ao-1",
-            "def456-ao-15",
-            "ghi789-ao-2",
-            "jkl012-ao-orchestrator",
+            "aabbccddeef0-ao-1",
+            "112233445566-ao-15",
+            "ffeeddccbbaa-ao-2",
+            "a0b1c2d3e4f5-ao-orchestrator",
           ].join("\n") + "\n";
         });
 
-      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBe("def456-ao-15");
+      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBe("112233445566-ao-15");
     });
 
-    it("matches ao-1 to abc123-ao-1 (not ao-15)", () => {
+    it("matches ao-1 to hash-ao-1 (not hash-ao-15)", () => {
       const mockExec = vi.fn()
         .mockImplementationOnce(() => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
           return [
-            "abc123-ao-1",
-            "def456-ao-15",
-            "ghi789-ao-2",
+            "aabbccddeef0-ao-1",
+            "112233445566-ao-15",
+            "ffeeddccbbaa-ao-2",
           ].join("\n") + "\n";
         });
 
-      expect(resolveTmuxSession("ao-1", TMUX, mockExec)).toBe("abc123-ao-1");
+      expect(resolveTmuxSession("ao-1", TMUX, mockExec)).toBe("aabbccddeef0-ao-1");
     });
 
     it("matches session with multiple hyphens in name", () => {
@@ -485,11 +533,11 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "abc123-my-long-session-name\ndef456-other-session\n";
+          return "aabbccddeef0-my-long-session-name\n112233445566-other-session\n";
         });
 
       expect(resolveTmuxSession("my-long-session-name", TMUX, mockExec))
-        .toBe("abc123-my-long-session-name");
+        .toBe("aabbccddeef0-my-long-session-name");
     });
 
     it("matches session with underscores", () => {
@@ -498,10 +546,10 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "abc123-my_session\ndef456-other_session\n";
+          return "aabbccddeef0-my_session\n112233445566-other_session\n";
         });
 
-      expect(resolveTmuxSession("my_session", TMUX, mockExec)).toBe("abc123-my_session");
+      expect(resolveTmuxSession("my_session", TMUX, mockExec)).toBe("aabbccddeef0-my_session");
     });
 
     it("passes list-sessions format flag correctly", () => {
@@ -522,14 +570,27 @@ describe("resolveTmuxSession", () => {
       );
     });
 
-    it("does NOT match if session name contains the ID but not as suffix", () => {
-      // e.g., "ao-15-extended" contains "ao-15" but doesn't end with "-ao-15"
+    it("does NOT match if session name contains the ID but not after hash prefix", () => {
+      // e.g., "ao-15-extended" has no valid hash prefix
       const mockExec = vi.fn()
         .mockImplementationOnce(() => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
           return "ao-15-extended\nao-15-backup\n";
+        });
+
+      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBeNull();
+    });
+
+    it("does NOT match hash-prefixed session with extra suffix", () => {
+      // "aabbccddeef0-ao-15-backup" has valid hash but substring(13) is "ao-15-backup" not "ao-15"
+      const mockExec = vi.fn()
+        .mockImplementationOnce(() => {
+          throw new Error("session not found");
+        })
+        .mockImplementationOnce(() => {
+          return "aabbccddeef0-ao-15-backup\n";
         });
 
       expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBeNull();
@@ -542,11 +603,11 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "hash1-ao-15\nhash2-ao-15\n";
+          return "aabbccddeef0-ao-15\n112233445566-ao-15\n";
         });
 
       // find() returns the first match
-      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBe("hash1-ao-15");
+      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBe("aabbccddeef0-ao-15");
     });
   });
 
@@ -635,10 +696,10 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "prefix-abcdef123456\n";
+          return "aabbccddeef0-abcdef123456\n";
         });
 
-      expect(resolveTmuxSession("abcdef123456", TMUX, mockExec)).toBe("prefix-abcdef123456");
+      expect(resolveTmuxSession("abcdef123456", TMUX, mockExec)).toBe("aabbccddeef0-abcdef123456");
     });
 
     it("handles single-char session ID", () => {
@@ -647,23 +708,21 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "hash-a\nhash-b\n";
+          return "aabbccddeef0-a\n112233445566-b\n";
         });
 
-      expect(resolveTmuxSession("a", TMUX, mockExec)).toBe("hash-a");
+      expect(resolveTmuxSession("a", TMUX, mockExec)).toBe("aabbccddeef0-a");
     });
 
-    it("does not match session that equals the ID without a hyphen prefix", () => {
-      // "ao-15" should not match "xao-15" (missing hyphen separator)
+    it("does not match session without valid hash prefix", () => {
       const mockExec = vi.fn()
         .mockImplementationOnce(() => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "xao-15\n";
+          return "xao-15\nnotahash-ao-15\n";
         });
 
-      // endsWith("-ao-15") would not match "xao-15"
       expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBeNull();
     });
 
@@ -673,27 +732,29 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "hash1-ao-15\r\nhash2-ao-16\r\n";
+          return "aabbccddeef0-ao-15\r\n112233445566-ao-16\r\n";
         });
 
-      // \r will remain in the session name with current implementation
-      // This tests that the code is robust against this edge case
-      // The result may include \r but the important thing is it returns something
-      const result = resolveTmuxSession("ao-15", TMUX, mockExec);
-      // With .filter(Boolean) and .split("\n"), "hash1-ao-15\r" won't match "-ao-15"
+      // \r will remain in the session name after split("\n")
+      // substring(13) of "aabbccddeef0-ao-15\r" is "ao-15\r" which !== "ao-15"
       // This documents the current behavior — tmux shouldn't produce \r\n on unix
-      expect(result).toBeNull();
+      expect(resolveTmuxSession("ao-15", TMUX, mockExec)).toBeNull();
     });
 
     it("handles very long session list", () => {
-      const sessions = Array.from({ length: 100 }, (_, i) => `hash${i}-session-${i}`).join("\n") + "\n";
+      // Generate 100 sessions with valid 12-char hex prefixes
+      const sessions = Array.from({ length: 100 }, (_, i) => {
+        const hex = i.toString(16).padStart(12, "0");
+        return `${hex}-session-${i}`;
+      }).join("\n") + "\n";
       const mockExec = vi.fn()
         .mockImplementationOnce(() => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => sessions);
 
-      expect(resolveTmuxSession("session-50", TMUX, mockExec)).toBe("hash50-session-50");
+      const hex50 = (50).toString(16).padStart(12, "0");
+      expect(resolveTmuxSession("session-50", TMUX, mockExec)).toBe(`${hex50}-session-50`);
     });
 
     it("handles session list where target is last entry", () => {
@@ -702,10 +763,10 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "hash1-ao-1\nhash2-ao-2\nhash3-ao-3\nhash4-ao-target\n";
+          return "aabbccddeef0-ao-1\n112233445566-ao-2\nffeeddccbbaa-ao-3\na0b1c2d3e4f5-ao-target\n";
         });
 
-      expect(resolveTmuxSession("ao-target", TMUX, mockExec)).toBe("hash4-ao-target");
+      expect(resolveTmuxSession("ao-target", TMUX, mockExec)).toBe("a0b1c2d3e4f5-ao-target");
     });
 
     it("handles session list where target is first entry", () => {
@@ -714,10 +775,10 @@ describe("resolveTmuxSession", () => {
           throw new Error("session not found");
         })
         .mockImplementationOnce(() => {
-          return "hash1-ao-target\nhash2-ao-2\nhash3-ao-3\n";
+          return "aabbccddeef0-ao-target\n112233445566-ao-2\nffeeddccbbaa-ao-3\n";
         });
 
-      expect(resolveTmuxSession("ao-target", TMUX, mockExec)).toBe("hash1-ao-target");
+      expect(resolveTmuxSession("ao-target", TMUX, mockExec)).toBe("aabbccddeef0-ao-target");
     });
 
     it("works with different tmux paths", () => {
