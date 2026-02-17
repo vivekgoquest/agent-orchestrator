@@ -46,7 +46,7 @@ console.log(`[DirectTerminal] Using tmux: ${TMUX}`);
 function resolveTmuxSession(sessionId: string): string | null {
   // Try exact match first (e.g., "ao-orchestrator")
   try {
-    execFileSync(TMUX, ["has-session", "-t", sessionId], { timeout: 5000 });
+    execFileSync(TMUX, ["has-session", "-t", `=${sessionId}`], { timeout: 5000 });
     return sessionId;
   } catch {
     // Not an exact match

@@ -16,6 +16,64 @@
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { createServer, request } from "node:http";
 
+/**
+ * Find full path to tmux. Checks common locations since child_process
+ * may not reliably inherit PATH in all environments.
+ */
+function findTmux(): string {
+  const candidates = [
+    "/opt/homebrew/bin/tmux", // macOS ARM (Homebrew)
+    "/usr/local/bin/tmux", // macOS Intel (Homebrew)
+    "/usr/bin/tmux", // Linux
+  ];
+  for (const p of candidates) {
+    try {
+      execFileSync(p, ["-V"], { timeout: 5000 });
+      return p;
+    } catch {
+      continue;
+    }
+  }
+  return "tmux"; // Fall back to bare name
+}
+
+/** Cached full path to tmux binary */
+const TMUX = findTmux();
+console.log(`[Terminal] Using tmux: ${TMUX}`);
+
+/**
+ * Resolve a user-facing session ID to its tmux session name.
+ * Tries exact match first, then searches for hash-prefixed sessions.
+ * Returns null if no matching tmux session is found.
+ */
+function resolveTmuxSession(sessionId: string): string | null {
+  // Try exact match first using = prefix for exact matching (e.g., "ao-orchestrator")
+  try {
+    execFileSync(TMUX, ["has-session", "-t", `=${sessionId}`], { timeout: 5000 });
+    return sessionId;
+  } catch {
+    // Not an exact match
+  }
+
+  // Search for hash-prefixed tmux session (e.g., "8474d6f29887-ao-15" for "ao-15")
+  try {
+    const output = execFileSync(TMUX, ["list-sessions", "-F", "#{session_name}"], {
+      timeout: 5000,
+      encoding: "utf8",
+    });
+    const sessions = output.split("\n").filter(Boolean);
+    const match = sessions.find((s) => s.endsWith(`-${sessionId}`));
+    if (match) {
+      console.log(`[Terminal] Resolved ${sessionId} → ${match}`);
+      return match;
+    }
+  } catch {
+    // tmux not running or no sessions
+  }
+
+  return null;
+}
+
 interface TtydInstance {
   sessionId: string;
   port: number;
@@ -121,13 +179,13 @@ function getOrSpawnTtyd(sessionId: string): TtydInstance {
   console.log(`[Terminal] Spawning ttyd for ${sessionId} on port ${port}`);
 
   // Enable mouse mode for scrollback support
-  const mouseProc = spawn("tmux", ["set-option", "-t", sessionId, "mouse", "on"]);
+  const mouseProc = spawn(TMUX, ["set-option", "-t", sessionId, "mouse", "on"]);
   mouseProc.on("error", (err) => {
     console.error(`[Terminal] Failed to set mouse mode for ${sessionId}:`, err.message);
   });
 
   // Hide the green status bar for cleaner appearance
-  const statusProc = spawn("tmux", ["set-option", "-t", sessionId, "status", "off"]);
+  const statusProc = spawn(TMUX, ["set-option", "-t", sessionId, "status", "off"]);
   statusProc.on("error", (err) => {
     console.error(`[Terminal] Failed to hide status bar for ${sessionId}:`, err.message);
   });
@@ -242,10 +300,10 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    // Validate tmux session exists before spawning ttyd
-    try {
-      execFileSync("tmux", ["has-session", "-t", sessionId], { timeout: 5000 });
-    } catch {
+    // Resolve tmux session name: try exact match first, then suffix match
+    // (hash-prefixed sessions like "8474d6f29887-ao-15" are accessed by user-facing ID "ao-15")
+    const tmuxSessionId = resolveTmuxSession(sessionId);
+    if (!tmuxSessionId) {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Session not found" }));
       return;
@@ -253,7 +311,7 @@ const server = createServer(async (req, res) => {
 
     // Spawn ttyd and wait for it to be ready (catch port exhaustion and startup failures)
     try {
-      const instance = getOrSpawnTtyd(sessionId);
+      const instance = getOrSpawnTtyd(tmuxSessionId);
       await waitForTtyd(instance.port, sessionId);
 
       // Use the request host to construct the terminal URL (supports remote access)
