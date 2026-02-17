@@ -14,9 +14,11 @@ import {
   loadConfig,
   createPluginRegistry,
   createSessionManager,
+  createLifecycleManager,
   type OrchestratorConfig,
   type PluginRegistry,
   type SessionManager,
+  type LifecycleManager,
   type SCM,
   type Tracker,
   type ProjectConfig,
@@ -34,6 +36,7 @@ export interface Services {
   config: OrchestratorConfig;
   registry: PluginRegistry;
   sessionManager: SessionManager;
+  lifecycleManager: LifecycleManager;
 }
 
 // Cache in globalThis for Next.js HMR stability
@@ -72,7 +75,13 @@ async function initServices(): Promise<Services> {
 
   const sessionManager = createSessionManager({ config, registry });
 
-  const services = { config, registry, sessionManager };
+  // Create and start the lifecycle manager to poll session status
+  // This runs a background loop that detects state transitions:
+  // spawning → working → pr_open → ci_failed/review_pending → etc.
+  const lifecycleManager = createLifecycleManager({ config, registry, sessionManager });
+  lifecycleManager.start(); // Start polling (default: every 30 seconds)
+
+  const services = { config, registry, sessionManager, lifecycleManager };
   globalForServices._aoServices = services;
   return services;
 }
