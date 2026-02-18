@@ -15,18 +15,22 @@ import {
   type PluginRegistry,
 } from "@composio/ao-core";
 
-let cachedRegistry: PluginRegistry | null = null;
+let registryPromise: Promise<PluginRegistry> | null = null;
 
 /**
  * Get or create the plugin registry.
- * Cached to avoid re-importing all plugins on every call.
+ * Caches the Promise (not the resolved value) so concurrent callers
+ * await the same initialization rather than racing.
  */
 async function getRegistry(config: OrchestratorConfig): Promise<PluginRegistry> {
-  if (!cachedRegistry) {
-    cachedRegistry = createPluginRegistry();
-    await cachedRegistry.loadFromConfig(config);
+  if (!registryPromise) {
+    registryPromise = (async () => {
+      const registry = createPluginRegistry();
+      await registry.loadFromConfig(config);
+      return registry;
+    })();
   }
-  return cachedRegistry;
+  return registryPromise;
 }
 
 /**

@@ -69,9 +69,13 @@ export function registerDashboard(program: Command): void {
 
       const stderrChunks: string[] = [];
 
+      const MAX_STDERR_CHUNKS = 100;
+
       child.stderr?.on("data", (data: Buffer) => {
         const text = data.toString();
-        stderrChunks.push(text);
+        if (stderrChunks.length < MAX_STDERR_CHUNKS) {
+          stderrChunks.push(text);
+        }
         // Still show stderr to the user
         process.stderr.write(data);
       });
