@@ -103,10 +103,11 @@ export function registerSession(program: Command): void {
 
       console.log(chalk.bold("Checking for completed sessions...\n"));
 
+      const sm = await getSessionManager(config);
+
       if (opts.dryRun) {
         // Dry-run delegates to sm.cleanup() with dryRun flag so it uses the
         // same live checks (PR state, runtime alive, tracker) as actual cleanup.
-        const sm = await getSessionManager(config);
         const result = await sm.cleanup(opts.project, { dryRun: true });
 
         if (result.errors.length > 0) {
@@ -128,7 +129,6 @@ export function registerSession(program: Command): void {
           );
         }
       } else {
-        const sm = await getSessionManager(config);
         const result = await sm.cleanup(opts.project);
 
         if (result.killed.length === 0 && result.errors.length === 0) {

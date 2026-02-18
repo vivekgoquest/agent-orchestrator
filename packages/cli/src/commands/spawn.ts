@@ -108,11 +108,13 @@ export function registerBatchSpawn(program: Command): void {
       const failed: Array<{ issue: string; error: string }> = [];
       const spawnedIssues = new Set<string>();
 
-      // Load existing sessions once before the loop to avoid repeated reads + enrichment
+      // Load existing sessions once before the loop to avoid repeated reads + enrichment.
+      // Exclude dead/killed sessions so crashed sessions don't block respawning.
+      const deadStatuses = new Set(["killed", "done", "exited"]);
       const existingSessions = await sm.list(projectId);
       const existingIssueMap = new Map(
         existingSessions
-          .filter((s) => s.issueId)
+          .filter((s) => s.issueId && !deadStatuses.has(s.status))
           .map((s) => [s.issueId!.toLowerCase(), s.id]),
       );
 
