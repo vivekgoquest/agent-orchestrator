@@ -1066,6 +1066,150 @@ describe("automated comment detection (bugbot)", () => {
     expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
   });
 
+  it("retriggers for same comment set when retriggerAfter elapses", async () => {
+    const botComment = {
+      id: "comment-1",
+      botName: "reviewdog",
+      body: "Error: unused import",
+      severity: "error" as const,
+      createdAt: new Date(),
+      url: "https://github.com/org/repo/pull/42#comment-1",
+    };
+
+    config.reactions = {
+      "bugbot-comments": {
+        auto: true,
+        action: "send-to-agent",
+        message: "Fix bot comments",
+        retriggerAfter: "30s",
+      },
+    };
+
+    const mockSCM = makeSCMWithAutomatedComments([botComment]);
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    vi.useFakeTimers();
+    try {
+      const lm = createLifecycleManager({
+        config,
+        registry: registryWithSCM,
+        sessionManager: mockSessionManager,
+      });
+
+      // Check 1: sets pr_open state (transition from spawning)
+      await lm.check("app-1");
+      // Check 2: automated comments check fires — sends message once
+      await lm.check("app-1");
+      expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+      // Check 3: same fingerprint, but not enough time yet — no retrigger
+      await lm.check("app-1");
+      expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+      // Advance past retriggerAfter (30s)
+      vi.advanceTimersByTime(31_000);
+
+      // Check 4: same fingerprint but retriggerAfter elapsed — retrigger fires
+      await lm.check("app-1");
+      expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears fingerprint on state transition so comments retrigger after agent pushes a fix", async () => {
+    const botComment = {
+      id: "comment-1",
+      botName: "reviewdog",
+      body: "Error: unused import",
+      severity: "error" as const,
+      createdAt: new Date(),
+      url: "https://github.com/org/repo/pull/42#comment-1",
+    };
+
+    config.reactions = {
+      "bugbot-comments": {
+        auto: true,
+        action: "send-to-agent",
+        message: "Fix bot comments",
+        // No retriggerAfter — only fingerprint-change-based retrigger
+      },
+    };
+
+    const getAutomatedComments = vi.fn().mockResolvedValue([botComment]);
+    const getCISummary = vi.fn().mockResolvedValue("passing");
+
+    const mockSCM: SCM = {
+      ...makeSCMWithAutomatedComments([botComment]),
+      getAutomatedComments,
+      getCISummary,
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    // Check 1: pr_open sets initial state
+    await lm.check("app-1");
+    // Check 2: automated comment check fires — sends message
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+
+    // Agent pushes a fix: CI briefly goes to passing then comes back to pr_open.
+    // Simulate by having CI return "pending" (causes pr_open → pr_open but through
+    // a different evaluation path — actually let's just force a status transition
+    // by making CI fail, then pass again).
+    getCISummary.mockResolvedValueOnce("failing"); // causes pr_open → ci_failed
+    await lm.check("app-1"); // transition to ci_failed (fingerprint cleared)
+    getCISummary.mockResolvedValue("passing");
+    await lm.check("app-1"); // transition back to pr_open
+
+    // Check: same comment still present, but fingerprint was cleared by transition
+    // → should retrigger on next automated comment check
+    await lm.check("app-1");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(2);
+  });
+
   it("retriggers when new automated comments appear (fingerprint changes)", async () => {
     const firstComment = {
       id: "comment-1",

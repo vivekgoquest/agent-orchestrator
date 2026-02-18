@@ -513,7 +513,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     const lastFingerprint = automatedCommentFingerprints.get(session.id);
 
     if (fingerprint === lastFingerprint) {
-      return; // Same comments as before — already reacted, skip
+      // Same comments as before. Check whether retriggerAfter has elapsed so we
+      // can re-notify the agent about unresolved bot feedback even when no new
+      // comments have appeared (the status-based checkPersistentConditions path
+      // does not cover this because no SessionStatus maps to "automated_review.found").
+      const reactionKey = "bugbot-comments";
+      const reactionConfig = getEffectiveReactionConfig(session, reactionKey);
+      if (!reactionConfig?.retriggerAfter) return;
+      const retriggerMs = parseDuration(reactionConfig.retriggerAfter);
+      if (retriggerMs <= 0) return;
+      const tracker = reactionTrackers.get(`${session.id}:${reactionKey}`);
+      if (!tracker) return; // Never reacted yet — nothing to retrigger
+      if (Date.now() - tracker.lastAttemptAt.getTime() < retriggerMs) return;
+      // Fall through to retrigger the reaction with the same comment set
     }
 
     // New or changed automated comments — update fingerprint and trigger reaction
@@ -618,7 +630,6 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       // Clear reaction trackers for the old status so retries reset on state changes.
-      // Also clear automated comment fingerprints so new comments retrigger after a fix.
       const oldEventType = statusToEventType(undefined, oldStatus);
       if (oldEventType) {
         const oldReactionKey = eventToReactionKey(oldEventType);
@@ -626,6 +637,11 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           reactionTrackers.delete(`${session.id}:${oldReactionKey}`);
         }
       }
+
+      // Clear automated comment fingerprint on any state transition so that
+      // persistent bot comments retrigger after an agent pushes a fix (even
+      // if the fix doesn't resolve all bot feedback).
+      automatedCommentFingerprints.delete(session.id);
 
       // Handle transition: notify humans and/or trigger reactions
       const eventType = statusToEventType(oldStatus, newStatus);
