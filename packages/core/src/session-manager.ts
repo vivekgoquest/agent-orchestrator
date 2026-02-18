@@ -997,7 +997,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     //    metadataToSession sets activity: null, so without enrichment a crashed
     //    session (status "working", agent exited) would not be detected as terminal
     //    and isRestorable would reject it.
-    const session = metadataToSession(sessionId, raw);
+    const session = metadataToSession(sessionId, raw, config.projects);
     const plugins = resolvePlugins(project);
     await enrichSessionWithRuntimeState(session, plugins, true);
 
