@@ -62,7 +62,7 @@ export function registerDashboard(program: Command): void {
 
       console.log(chalk.bold(`Starting dashboard on http://localhost:${port}\n`));
 
-      const env = buildDashboardEnv(
+      const env = await buildDashboardEnv(
         port,
         config.configPath,
         config.terminalPort,

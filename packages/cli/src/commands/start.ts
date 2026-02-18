@@ -65,14 +65,14 @@ function resolveProject(
  * Start dashboard server in the background.
  * Returns the child process handle for cleanup.
  */
-function startDashboard(
+async function startDashboard(
   port: number,
   webDir: string,
   configPath: string | null,
   terminalPort?: number,
   directTerminalPort?: number,
-): ChildProcess {
-  const env = buildDashboardEnv(port, configPath, terminalPort, directTerminalPort);
+): Promise<ChildProcess> {
+  const env = await buildDashboardEnv(port, configPath, terminalPort, directTerminalPort);
 
   const child = spawn("pnpm", ["run", "dev"], {
     cwd: webDir,
@@ -156,7 +156,7 @@ export function registerStart(program: Command): void {
             }
 
             spinner.start("Starting dashboard");
-            dashboardProcess = startDashboard(
+            dashboardProcess = await startDashboard(
               port,
               webDir,
               config.configPath,
