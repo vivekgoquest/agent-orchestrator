@@ -3,6 +3,7 @@ import {
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
+  type ActivityDetection,
   type ActivityState,
   type PluginModule,
   type RuntimeHandle,
@@ -75,11 +76,11 @@ function createCodexAgent(): Agent {
       return "active";
     },
 
-    async getActivityState(session: Session, _readyThresholdMs?: number): Promise<ActivityState | null> {
+    async getActivityState(session: Session, _readyThresholdMs?: number): Promise<ActivityDetection | null> {
       // Check if process is running first
-      if (!session.runtimeHandle) return "exited";
+      if (!session.runtimeHandle) return { state: "exited" };
       const running = await this.isProcessRunning(session.runtimeHandle);
-      if (!running) return "exited";
+      if (!running) return { state: "exited" };
 
       // NOTE: Codex stores rollout files in a global ~/.codex/sessions/ directory
       // without workspace-specific scoping. When multiple Codex sessions run in

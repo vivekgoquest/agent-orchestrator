@@ -5,6 +5,7 @@ import {
   type Agent,
   type AgentSessionInfo,
   type AgentLaunchConfig,
+  type ActivityDetection,
   type ActivityState,
   type CostEstimate,
   type PluginModule,
@@ -613,13 +614,13 @@ function createClaudeCodeAgent(): Agent {
     async getActivityState(
       session: Session,
       readyThresholdMs?: number,
-    ): Promise<ActivityState | null> {
+    ): Promise<ActivityDetection | null> {
       const threshold = readyThresholdMs ?? DEFAULT_READY_THRESHOLD_MS;
 
       // Check if process is running first
-      if (!session.runtimeHandle) return "exited";
+      if (!session.runtimeHandle) return { state: "exited" };
       const running = await this.isProcessRunning(session.runtimeHandle);
-      if (!running) return "exited";
+      if (!running) return { state: "exited" };
 
       // Process is running - check JSONL session file for activity
       if (!session.workspacePath) {
@@ -643,6 +644,7 @@ function createClaudeCodeAgent(): Agent {
       }
 
       const ageMs = Date.now() - entry.modifiedAt.getTime();
+      const timestamp = entry.modifiedAt;
 
       // Classify based on last JSONL entry type.
       //
@@ -663,7 +665,7 @@ function createClaudeCodeAgent(): Agent {
         case "progress":
           // Agent is processing: user just sent input, tools running, or
           // actively streaming. Stale past threshold.
-          return ageMs > threshold ? "idle" : "active";
+          return { state: ageMs > threshold ? "idle" : "active", timestamp };
 
         case "assistant":
         case "system":
@@ -671,20 +673,20 @@ function createClaudeCodeAgent(): Agent {
         case "result":
           // Agent finished its turn. If recent, the session is alive and
           // ready for the next instruction. Past threshold it's stale.
-          return ageMs > threshold ? "idle" : "ready";
+          return { state: ageMs > threshold ? "idle" : "ready", timestamp };
 
         case "permission_request":
           // Agent needs user approval for an action
-          return "waiting_input";
+          return { state: "waiting_input", timestamp };
 
         case "error":
           // Agent encountered an error
-          return "blocked";
+          return { state: "blocked", timestamp };
 
         default:
           // Unknown/bookkeeping types (file-history-snapshot, queue-operation,
           // pr-link, etc.) — if recent, assume active; otherwise idle.
-          return ageMs > threshold ? "idle" : "active";
+          return { state: ageMs > threshold ? "idle" : "active", timestamp };
       }
     },
 
