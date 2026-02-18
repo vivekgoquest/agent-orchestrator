@@ -535,9 +535,6 @@ export interface SCM {
 
   /** Check if PR is ready to merge */
   getMergeability(pr: PRInfo): Promise<MergeReadiness>;
-
-  /** Optional: check if a branch exists in the repo */
-  branchExists?(repoPath: string, branch: string): Promise<boolean>;
 }
 
 // --- PR Types ---

@@ -903,8 +903,13 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw new Error(`Session ${sessionId} not found`);
     }
 
-    // 2. Reconstruct Session from metadata
+    // 2. Reconstruct Session from metadata and enrich with live runtime state.
+    //    metadataToSession sets activity: null, so without enrichment a crashed
+    //    session (status "working", agent exited) would not be detected as terminal
+    //    and isRestorable would reject it.
     const session = metadataToSession(sessionId, raw);
+    const plugins = resolvePlugins(project);
+    await enrichSessionWithRuntimeState(session, plugins, true);
 
     // 3. Validate restorability
     if (!isRestorable(session)) {
@@ -914,8 +919,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw new SessionNotRestorableError(sessionId, "session is not in a terminal state");
     }
 
-    // 4. Resolve plugins
-    const plugins = resolvePlugins(project);
+    // 4. Validate required plugins (plugins already resolved above for enrichment)
     if (!plugins.runtime) {
       throw new Error(`Runtime plugin '${project.runtime ?? config.defaults.runtime}' not found`);
     }
