@@ -85,7 +85,8 @@ export default function SessionPage() {
     try {
       const res = await fetch("/api/sessions");
       if (!res.ok) return;
-      const sessions = (await res.json()) as DashboardSession[];
+      const body = (await res.json()) as { sessions: DashboardSession[] };
+      const sessions = body.sessions ?? [];
       const counts: ZoneCounts = { merge: 0, respond: 0, review: 0, pending: 0, working: 0, done: 0 };
       for (const s of sessions) {
         if (!s.id.endsWith("-orchestrator")) {
@@ -98,10 +99,12 @@ export default function SessionPage() {
     }
   }, [isOrchestrator]);
 
-  // Initial fetch
+  // Initial fetch — session first, zone counts after (avoids blocking on slow /api/sessions)
   useEffect(() => {
     fetchSession();
-    fetchZoneCounts();
+    // Delay zone counts so the heavy /api/sessions call doesn't contend with session load
+    const t = setTimeout(fetchZoneCounts, 2000);
+    return () => clearTimeout(t);
   }, [fetchSession, fetchZoneCounts]);
 
   // Poll every 5s

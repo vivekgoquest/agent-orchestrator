@@ -148,14 +148,13 @@ a:hover {
   -webkit-backdrop-filter: blur(16px);
 }
 
-/* ── Detail page cards — same depth as session cards, no hover lift ────── */
+/* ── Detail page cards — subtle depth, no hover lift ─────────────────── */
 
 .detail-card {
-  background: linear-gradient(175deg, rgba(28,36,47,1) 0%, rgba(18,23,31,1) 100%);
+  background: linear-gradient(175deg, rgba(24,31,40,1) 0%, rgba(17,22,29,1) 100%);
   box-shadow:
-    0 1px 2px rgba(0,0,0,0.9),
-    0 4px 14px rgba(0,0,0,0.5),
-    inset 0 1px 0 rgba(255,255,255,0.07);
+    0 1px 3px rgba(0,0,0,0.6),
+    inset 0 1px 0 rgba(255,255,255,0.05);
   --color-text-secondary: #8b949e;
   --color-text-muted:     #656d76;
   --color-text-tertiary:  #656d76;
