@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { ChildProcess } from "node:child_process";
-import type { DashboardRestartOpts } from "../dashboard-manager.js";
+import {
+  type DashboardRestartOpts,
+  readPidFile,
+  writePidFile,
+  removePidFile,
+  waitForHealthy,
+  getDashboardStatus,
+  stopDashboard,
+  restartDashboard,
+} from "../dashboard-manager.js";
 
 // ---------------------------------------------------------------------------
 // Hoisted mock functions — vi.hoisted() runs before vi.mock factories
@@ -61,7 +70,8 @@ vi.mock("node:util", () => ({
     if (fn === mockExecFile) {
       return (...args: unknown[]) => {
         return new Promise((resolve, reject) => {
-          (fn as Function)(...args, (err: Error | null, stdout: string, stderr: string) => {
+          type CbFn = (...a: [...unknown[], (err: Error | null, stdout: string, stderr: string) => void]) => void;
+          (fn as CbFn)(...args, (err: Error | null, stdout: string, stderr: string) => {
             if (err) reject(err);
             else resolve({ stdout, stderr });
           });
@@ -76,19 +86,6 @@ vi.mock("node:util", () => ({
 // Mock global fetch for waitForHealthy
 // ---------------------------------------------------------------------------
 vi.stubGlobal("fetch", mockFetch);
-
-// ---------------------------------------------------------------------------
-// Import the module under test (after all mocks are wired)
-// ---------------------------------------------------------------------------
-import {
-  readPidFile,
-  writePidFile,
-  removePidFile,
-  waitForHealthy,
-  getDashboardStatus,
-  stopDashboard,
-  restartDashboard,
-} from "../dashboard-manager.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -548,7 +545,7 @@ describe("stopDashboard", () => {
     mockReadFileSync.mockReturnValue("1234\n");
 
     let killCallCount = 0;
-    vi.spyOn(process, "kill").mockImplementation((...args: unknown[]) => {
+    vi.spyOn(process, "kill").mockImplementation((..._args: unknown[]) => {
       killCallCount++;
       if (killCallCount === 1) {
         // kill(pid, 0) — alive check succeeds
