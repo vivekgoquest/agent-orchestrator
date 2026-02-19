@@ -7,6 +7,7 @@ import {
   type DashboardPR,
   type AttentionLevel,
   getAttentionLevel,
+  isPRRateLimited,
 } from "@/lib/types";
 import { CI_STATUS } from "@composio/ao-core/types";
 import { AttentionZone } from "./AttentionZone";
@@ -85,6 +86,11 @@ export function Dashboard({ sessions, stats, orchestratorId, projectName }: Dash
 
   const hasKanbanSessions = KANBAN_LEVELS.some((l) => grouped[l].length > 0);
 
+  const anyRateLimited = useMemo(
+    () => sessions.some((s) => s.pr && isPRRateLimited(s.pr)),
+    [sessions],
+  );
+
   return (
     <div className="px-8 py-7">
       <DynamicFavicon sessions={sessions} projectName={projectName} />
@@ -108,6 +114,19 @@ export function Dashboard({ sessions, stats, orchestratorId, projectName }: Dash
           </a>
         )}
       </div>
+
+      {/* Rate limit notice */}
+      {anyRateLimited && (
+        <div className="mb-6 flex items-center gap-2.5 rounded border border-[rgba(245,158,11,0.25)] bg-[rgba(245,158,11,0.05)] px-3.5 py-2.5 text-[11px] text-[var(--color-status-attention)]">
+          <svg className="h-3.5 w-3.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <span>
+            GitHub API rate limited — PR data (CI status, review state, sizes) may be stale.
+            {" "}Will retry automatically on next refresh.
+          </span>
+        </div>
+      )}
 
       {/* Kanban columns for active zones */}
       {hasKanbanSessions && (

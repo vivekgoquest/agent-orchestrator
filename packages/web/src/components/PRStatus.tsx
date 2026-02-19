@@ -1,6 +1,7 @@
 "use client";
 
 import type { DashboardPR } from "@/lib/types";
+import { isPRRateLimited } from "@/lib/types";
 import { CIBadge } from "./CIBadge";
 
 function getSizeLabel(additions: number, deletions: number): string {
@@ -14,6 +15,7 @@ interface PRStatusProps {
 
 export function PRStatus({ pr }: PRStatusProps) {
   const sizeLabel = getSizeLabel(pr.additions, pr.deletions);
+  const rateLimited = isPRRateLimited(pr);
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -28,10 +30,12 @@ export function PRStatus({ pr }: PRStatusProps) {
         #{pr.number}
       </a>
 
-      {/* Size */}
-      <span className="inline-flex items-center rounded-full bg-[rgba(125,133,144,0.08)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-muted)]">
-        +{pr.additions} -{pr.deletions} {sizeLabel}
-      </span>
+      {/* Size — hide when rate limited (would show +0 -0 XS) */}
+      {!rateLimited && (
+        <span className="inline-flex items-center rounded-full bg-[rgba(125,133,144,0.08)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-text-muted)]">
+          +{pr.additions} -{pr.deletions} {sizeLabel}
+        </span>
+      )}
 
       {/* Merged badge */}
       {pr.state === "merged" && (
@@ -47,11 +51,13 @@ export function PRStatus({ pr }: PRStatusProps) {
         </span>
       )}
 
-      {/* CI status (only for open PRs) */}
-      {pr.state === "open" && !pr.isDraft && <CIBadge status={pr.ciStatus} checks={pr.ciChecks} />}
+      {/* CI status — only when we have real data */}
+      {pr.state === "open" && !pr.isDraft && !rateLimited && (
+        <CIBadge status={pr.ciStatus} checks={pr.ciChecks} />
+      )}
 
-      {/* Review decision (only for open PRs) */}
-      {pr.state === "open" && pr.reviewDecision === "approved" && (
+      {/* Review decision (only for open PRs with real data) */}
+      {pr.state === "open" && pr.reviewDecision === "approved" && !rateLimited && (
         <span className="inline-flex items-center rounded-full bg-[rgba(63,185,80,0.1)] px-2 py-0.5 text-[10px] font-semibold text-[var(--color-accent-green)]">
           approved
         </span>

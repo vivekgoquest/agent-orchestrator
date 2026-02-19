@@ -5,6 +5,7 @@ import {
   type DashboardSession,
   type AttentionLevel,
   getAttentionLevel,
+  isPRRateLimited,
   TERMINAL_STATUSES,
   TERMINAL_ACTIVITIES,
 } from "@/lib/types";
@@ -72,6 +73,7 @@ export function SessionCard({ session, onSend, onKill, onMerge, onRestore }: Ses
     timerRef.current = setTimeout(() => setSendingAction(null), 2000);
   };
 
+  const rateLimited = pr ? isPRRateLimited(pr) : false;
   const alerts = getAlerts(session);
   const isReadyToMerge = pr?.mergeability.mergeable && pr.state === "open";
   const isTerminal =
@@ -144,8 +146,20 @@ export function SessionCard({ session, onSend, onKill, onMerge, onRestore }: Ses
         {pr && <PRStatus pr={pr} />}
       </div>
 
+      {/* Rate limited indicator */}
+      {rateLimited && pr?.state === "open" && (
+        <div className="px-4 pb-3">
+          <span className="inline-flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
+            <svg className="h-3 w-3 text-[var(--color-status-attention)]" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            PR data rate limited
+          </span>
+        </div>
+      )}
+
       {/* Merge button or alert tags */}
-      {(alerts.length > 0 || isReadyToMerge) && (
+      {!rateLimited && (alerts.length > 0 || isReadyToMerge) && (
         <div className="px-4 pb-3.5 pt-0.5">
           {isReadyToMerge && pr ? (
             <button
@@ -304,6 +318,7 @@ interface Alert {
 function getAlerts(session: DashboardSession): Alert[] {
   const pr = session.pr;
   if (!pr || pr.state !== "open") return [];
+  if (isPRRateLimited(pr)) return [];
 
   const alerts: Alert[] = [];
 
