@@ -37,7 +37,7 @@ describe("init command", () => {
     expect(existsSync(outputPath)).toBe(true);
   });
 
-  it("auto mode uses port 3000 when it is available", async () => {
+  it("auto mode uses port 4100 when it is available", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "ao-init-test-"));
     const outputPath = join(tmpDir, "agent-orchestrator.yaml");
 
@@ -50,17 +50,17 @@ describe("init command", () => {
     await program.parseAsync(["node", "test", "init", "--auto", "--output", outputPath]);
 
     const content = readFileSync(outputPath, "utf-8");
-    expect(content).toContain("port: 3000");
+    expect(content).toContain("port: 4100");
   });
 
-  it("auto mode picks next free port when 3000 is occupied", async () => {
+  it("auto mode picks next free port when 4100 is occupied", async () => {
     tmpDir = mkdtempSync(join(tmpdir(), "ao-init-test-"));
     const outputPath = join(tmpDir, "agent-orchestrator.yaml");
 
-    // Occupy port 3000
+    // Occupy port 4100
     const blocker = createServer();
     await new Promise<void>((resolve) => {
-      blocker.listen(3000, "127.0.0.1", () => resolve());
+      blocker.listen(4100, "127.0.0.1", () => resolve());
     });
 
     try {
@@ -73,14 +73,14 @@ describe("init command", () => {
       await program.parseAsync(["node", "test", "init", "--auto", "--output", outputPath]);
 
       const content = readFileSync(outputPath, "utf-8");
-      // Should NOT be 3000 since we're occupying it
-      expect(content).not.toContain("port: 3000");
-      // Should pick 3001 (or higher if 3001 is also taken)
+      // Should NOT be 4100 since we're occupying it
+      expect(content).not.toContain("port: 4100");
+      // Should pick 4101 (or higher if 4101 is also taken)
       const portMatch = content.match(/port: (\d+)/);
       expect(portMatch).toBeTruthy();
       const port = parseInt(portMatch![1], 10);
-      expect(port).toBeGreaterThan(3000);
-      expect(port).toBeLessThan(3100);
+      expect(port).toBeGreaterThan(4100);
+      expect(port).toBeLessThan(4200);
     } finally {
       await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }

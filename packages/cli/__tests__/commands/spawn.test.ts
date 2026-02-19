@@ -72,7 +72,7 @@ beforeEach(() => {
 
   mockConfigRef.current = {
     configPath,
-    port: 3000,
+    port: 4100,
     defaults: {
       runtime: "tmux",
       agent: "claude-code",

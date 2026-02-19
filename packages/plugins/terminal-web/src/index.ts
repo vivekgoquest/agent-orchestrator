@@ -16,7 +16,7 @@ export const manifest = {
  * that the dashboard needs.
  */
 export function create(config?: Record<string, unknown>): Terminal {
-  const dashboardUrl = (config?.dashboardUrl as string) ?? "http://localhost:3000";
+  const dashboardUrl = (config?.dashboardUrl as string) ?? "http://localhost:4100";
 
   // Track which sessions have been "opened" (URL generated for the dashboard)
   const openSessions = new Set<string>();

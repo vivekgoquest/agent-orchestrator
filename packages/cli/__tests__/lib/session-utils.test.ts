@@ -60,7 +60,7 @@ describe("findProjectForSession", () => {
     ({
       dataDir: "/tmp",
       worktreeDir: "/tmp/wt",
-      port: 3000,
+      port: 4100,
       defaults: { runtime: "tmux", agent: "claude-code", workspace: "worktree", notifiers: [] },
       projects: Object.fromEntries(
         Object.entries(projects).map(([id, p]) => [

@@ -13,7 +13,7 @@ import {
   formatProjectTypeForDisplay,
 } from "../lib/project-detection.js";
 
-const DEFAULT_PORT = 3000;
+const DEFAULT_PORT = 4100;
 const MAX_PORT_SCAN = 100;
 
 /** Find the first available port starting from `start`, scanning upward. */

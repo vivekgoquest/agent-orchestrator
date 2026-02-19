@@ -59,7 +59,7 @@ describe.skipIf(!tmuxOk)("CLI-Core integration (hash-based architecture)", () =>
 
     // Create config WITHOUT dataDir/worktreeDir (new architecture)
     const config = {
-      port: 3000,
+      port: 4100,
       defaults: {
         runtime: "tmux",
         agent: "claude-code",
@@ -155,7 +155,7 @@ describe.skipIf(!tmuxOk)("CLI-Core integration (hash-based architecture)", () =>
     // Create session-manager with configPath
     const config: OrchestratorConfig = {
       configPath, // This enables hash-based architecture
-      port: 3000,
+      port: 4100,
       readyThresholdMs: 300_000,
       defaults: {
         runtime: "tmux",
@@ -215,7 +215,7 @@ describe.skipIf(!tmuxOk)("CLI-Core integration (hash-based architecture)", () =>
 
     const config: OrchestratorConfig = {
       configPath,
-      port: 3000,
+      port: 4100,
       readyThresholdMs: 300_000,
       defaults: {
         runtime: "tmux",

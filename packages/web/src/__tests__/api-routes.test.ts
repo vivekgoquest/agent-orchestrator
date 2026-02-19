@@ -127,7 +127,7 @@ const mockRegistry: PluginRegistry = {
 
 const mockConfig: OrchestratorConfig = {
   configPath: "/tmp/ao-test/agent-orchestrator.yaml",
-  port: 3000,
+  port: 4100,
   readyThresholdMs: 300_000,
   defaults: { runtime: "tmux", agent: "claude-code", workspace: "worktree", notifiers: [] },
   projects: {
@@ -166,7 +166,7 @@ import { GET as eventsGET } from "@/app/api/events/route";
 
 function makeRequest(url: string, init?: RequestInit): NextRequest {
   return new NextRequest(
-    new URL(url, "http://localhost:3000"),
+    new URL(url, "http://localhost:4100"),
     init as ConstructorParameters<typeof NextRequest>[1],
   );
 }

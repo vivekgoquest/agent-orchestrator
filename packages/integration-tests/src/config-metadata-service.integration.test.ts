@@ -36,7 +36,7 @@ describe("config → metadata service integration (real filesystem)", () => {
 
     // Create a minimal config file
     const config = {
-      port: 3000,
+      port: 4100,
       defaults: {
         runtime: "tmux",
         agent: "claude-code",
