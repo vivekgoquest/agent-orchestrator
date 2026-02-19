@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
 import { Dashboard } from "@/components/Dashboard";
 import type { DashboardSession } from "@/lib/types";
-import { getServices, getAgent, getSCM, getTracker } from "@/lib/services";
+import { getServices, getSCM } from "@/lib/services";
 import {
   sessionToDashboard,
   resolveProject,
   enrichSessionPR,
-  enrichSessionIssue,
-  enrichSessionAgentSummary,
-  enrichSessionIssueTitle,
+  enrichSessionsMetadata,
   computeStats,
 } from "@/lib/serialize";
 import { prCache, prCacheKey } from "@/lib/cache";
@@ -41,35 +39,8 @@ export default async function Home() {
     const coreSessions = allSessions.filter((s) => !s.id.endsWith("-orchestrator"));
     sessions = coreSessions.map(sessionToDashboard);
 
-    // Enrich issue labels using tracker plugin (synchronous)
-    coreSessions.forEach((core, i) => {
-      if (!sessions[i].issueUrl) return;
-      const project = resolveProject(core, config.projects);
-      const tracker = getTracker(registry, project);
-      if (!tracker || !project) return;
-      enrichSessionIssue(sessions[i], tracker, project);
-    });
-
-    // Enrich agent summaries for sessions that don't have one yet
-    // (reads agent's JSONL file — local I/O, not an API call)
-    const summaryPromises = coreSessions.map((core, i) => {
-      if (sessions[i].summary) return Promise.resolve();
-      const project = resolveProject(core, config.projects);
-      const agent = getAgent(registry, project, config.defaults.agent);
-      if (!agent) return Promise.resolve();
-      return enrichSessionAgentSummary(sessions[i], core, agent);
-    });
-
-    // Enrich issue titles for sessions that have issues
-    const issueTitlePromises = coreSessions.map((core, i) => {
-      if (!sessions[i].issueUrl || !sessions[i].issueLabel) return Promise.resolve();
-      const project = resolveProject(core, config.projects);
-      const tracker = getTracker(registry, project);
-      if (!tracker || !project) return Promise.resolve();
-      return enrichSessionIssueTitle(sessions[i], tracker, project);
-    });
-
-    await Promise.allSettled([...summaryPromises, ...issueTitlePromises]);
+    // Enrich metadata (issue labels, agent summaries, issue titles)
+    await enrichSessionsMetadata(coreSessions, sessions, config, registry);
 
     // Enrich sessions that have PRs with live SCM data
     // Skip enrichment for terminal sessions (merged, closed, done, terminated)

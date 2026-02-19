@@ -5,7 +5,16 @@
  * (string dates, flattened DashboardPR) suitable for JSON serialization.
  */
 
-import type { Session, Agent, SCM, PRInfo, Tracker, ProjectConfig } from "@composio/ao-core";
+import type {
+  Session,
+  Agent,
+  SCM,
+  PRInfo,
+  Tracker,
+  ProjectConfig,
+  OrchestratorConfig,
+  PluginRegistry,
+} from "@composio/ao-core";
 import type { DashboardSession, DashboardPR, DashboardStats } from "./types.js";
 import { TTLCache, prCache, prCacheKey, type PREnrichmentData } from "./cache";
 
@@ -301,6 +310,52 @@ export async function enrichSessionIssueTitle(
   } catch {
     // Can't fetch issue — keep issueTitle null
   }
+}
+
+/**
+ * Enrich dashboard sessions with metadata (issue labels, agent summaries, issue titles).
+ * Orchestrates sync + async enrichment in parallel. Does NOT enrich PR data — callers
+ * handle that separately since strategies differ (e.g. terminal-session cache optimization).
+ */
+export async function enrichSessionsMetadata(
+  coreSessions: Session[],
+  dashboardSessions: DashboardSession[],
+  config: OrchestratorConfig,
+  registry: PluginRegistry,
+): Promise<void> {
+  // Resolve projects once per session (avoids repeated Object.entries lookups)
+  const projects = coreSessions.map((core) => resolveProject(core, config.projects));
+
+  // Enrich issue labels (synchronous — must run before async title enrichment)
+  projects.forEach((project, i) => {
+    if (!dashboardSessions[i].issueUrl || !project?.tracker) return;
+    const tracker = registry.get<Tracker>("tracker", project.tracker.plugin);
+    if (!tracker) return;
+    enrichSessionIssue(dashboardSessions[i], tracker, project);
+  });
+
+  // Enrich agent summaries (reads agent's JSONL — local I/O, not an API call)
+  const summaryPromises = coreSessions.map((core, i) => {
+    if (dashboardSessions[i].summary) return Promise.resolve();
+    const agentName = projects[i]?.agent ?? config.defaults.agent;
+    if (!agentName) return Promise.resolve();
+    const agent = registry.get<Agent>("agent", agentName);
+    if (!agent) return Promise.resolve();
+    return enrichSessionAgentSummary(dashboardSessions[i], core, agent);
+  });
+
+  // Enrich issue titles (fetches from tracker API, cached with TTL)
+  const issueTitlePromises = projects.map((project, i) => {
+    if (!dashboardSessions[i].issueUrl || !dashboardSessions[i].issueLabel) {
+      return Promise.resolve();
+    }
+    if (!project?.tracker) return Promise.resolve();
+    const tracker = registry.get<Tracker>("tracker", project.tracker.plugin);
+    if (!tracker) return Promise.resolve();
+    return enrichSessionIssueTitle(dashboardSessions[i], tracker, project);
+  });
+
+  await Promise.allSettled([...summaryPromises, ...issueTitlePromises]);
 }
 
 /** Compute dashboard stats from a list of sessions. */

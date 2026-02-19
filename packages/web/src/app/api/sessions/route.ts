@@ -1,13 +1,11 @@
 import { ACTIVITY_STATE } from "@composio/ao-core";
 import { NextResponse } from "next/server";
-import { getServices, getAgent, getSCM, getTracker } from "@/lib/services";
+import { getServices, getSCM } from "@/lib/services";
 import {
   sessionToDashboard,
   resolveProject,
   enrichSessionPR,
-  enrichSessionIssue,
-  enrichSessionAgentSummary,
-  enrichSessionIssueTitle,
+  enrichSessionsMetadata,
   computeStats,
 } from "@/lib/serialize";
 
@@ -38,36 +36,8 @@ export async function GET(request: Request) {
       dashboardSessions = activeIndices.map((i) => dashboardSessions[i]);
     }
 
-    // Enrich issue labels using tracker plugin (synchronous)
-    workerSessions.forEach((core, i) => {
-      if (!dashboardSessions[i].issueUrl) return;
-      const project = resolveProject(core, config.projects);
-      const tracker = getTracker(registry, project);
-      if (!tracker || !project) return;
-      enrichSessionIssue(dashboardSessions[i], tracker, project);
-    });
-
-    // Enrich agent summaries for sessions that don't have one yet
-    const summaryPromises = workerSessions.map((core, i) => {
-      if (dashboardSessions[i].summary) return Promise.resolve();
-      const project = resolveProject(core, config.projects);
-      const agent = getAgent(registry, project, config.defaults.agent);
-      if (!agent) return Promise.resolve();
-      return enrichSessionAgentSummary(dashboardSessions[i], core, agent);
-    });
-
-    // Enrich issue titles for sessions that have issues
-    const issueTitlePromises = workerSessions.map((core, i) => {
-      if (!dashboardSessions[i].issueUrl || !dashboardSessions[i].issueLabel) {
-        return Promise.resolve();
-      }
-      const project = resolveProject(core, config.projects);
-      const tracker = getTracker(registry, project);
-      if (!tracker || !project) return Promise.resolve();
-      return enrichSessionIssueTitle(dashboardSessions[i], tracker, project);
-    });
-
-    await Promise.allSettled([...summaryPromises, ...issueTitlePromises]);
+    // Enrich metadata (issue labels, agent summaries, issue titles)
+    await enrichSessionsMetadata(workerSessions, dashboardSessions, config, registry);
 
     // Enrich sessions that have PRs with live SCM data (CI, reviews, mergeability)
     const enrichPromises = workerSessions.map((core, i) => {
