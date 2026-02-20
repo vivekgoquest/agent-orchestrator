@@ -3,8 +3,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { SessionDetail } from "@/components/SessionDetail";
-import type { DashboardSession } from "@/lib/types";
+import {
+  type DashboardSession,
+  type SSESnapshotEvent,
+} from "@/lib/types";
 import { activityIcon } from "@/lib/activity-icons";
+import { useSSE } from "@/hooks/useSSE";
 
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "..." : s;
@@ -48,7 +52,7 @@ export default function SessionPage() {
     }
   }, [session, id]);
 
-  // Fetch session data (memoized to avoid recreating on every render)
+  // Fetch full session data (includes enriched PR/CI/review info).
   const fetchSession = useCallback(async () => {
     try {
       const res = await fetch(`/api/sessions/${encodeURIComponent(id)}`);
@@ -57,9 +61,7 @@ export default function SessionPage() {
         setLoading(false);
         return;
       }
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as DashboardSession;
       setSession(data);
       setError(null);
@@ -76,27 +78,60 @@ export default function SessionPage() {
     fetchSession();
   }, [fetchSession]);
 
-  // Poll for updates every 5 seconds
+  // SSE subscription — patch status/activity immediately for instant feedback.
+  const handleSSEMessage = useCallback(
+    (data: SSESnapshotEvent) => {
+      if (data.type !== "snapshot" || !Array.isArray(data.sessions)) return;
+      const update = data.sessions.find((s) => s.id === id);
+      if (!update) return;
+      setSession((prev) => {
+        if (!prev) return prev;
+        if (
+          prev.status !== update.status ||
+          prev.activity !== update.activity ||
+          prev.lastActivityAt !== update.lastActivityAt
+        ) {
+          return {
+            ...prev,
+            status: update.status,
+            activity: update.activity,
+            lastActivityAt: update.lastActivityAt,
+          };
+        }
+        return prev;
+      });
+    },
+    [id],
+  );
+  useSSE<SSESnapshotEvent>("/api/events", handleSSEMessage);
+
+  // Poll every 30s to refresh PR/CI enrichment data.
+  // SSE handles real-time status/activity updates; this only refreshes review/CI state.
   useEffect(() => {
-    const interval = setInterval(fetchSession, 5000);
+    const interval = setInterval(fetchSession, 30_000);
     return () => clearInterval(interval);
   }, [fetchSession]);
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-sm text-[var(--color-text-muted)]">Loading session...</div>
+      <div className="flex min-h-screen items-center justify-center bg-[var(--color-bg-base)]">
+        <div className="text-[13px] text-[var(--color-text-tertiary)]">Loading session…</div>
       </div>
     );
   }
 
   if (error || !session) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-sm text-[var(--color-accent-red)]">{error || "Session not found"}</div>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[var(--color-bg-base)]">
+        <div className="text-[13px] text-[var(--color-status-error)]">{error ?? "Session not found"}</div>
+        <a href="/" className="text-[12px] text-[var(--color-accent)] hover:underline">
+          ← Back to dashboard
+        </a>
       </div>
     );
   }
 
-  return <SessionDetail session={session} />;
+  return (
+    <SessionDetail session={session} />
+  );
 }
