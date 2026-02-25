@@ -55,6 +55,17 @@ export type { LifecycleManagerDeps } from "./lifecycle-manager.js";
 export { buildPrompt, BASE_AGENT_PROMPT } from "./prompt-builder.js";
 export type { PromptBuildConfig } from "./prompt-builder.js";
 
+// Scheduler — DAG ready-queue computation with concurrency limits
+export { createScheduler } from "./scheduler.js";
+export type {
+  TaskNodeState,
+  TaskNode,
+  TaskGraph,
+  SchedulerConfig,
+  SchedulerResult,
+  SchedulerService,
+} from "./scheduler.js";
+
 // Orchestrator prompt — generates orchestrator context for `ao start`
 export { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
 export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";
