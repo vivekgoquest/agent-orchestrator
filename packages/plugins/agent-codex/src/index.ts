@@ -11,9 +11,9 @@ import {
   type WorkspaceHooksConfig,
 } from "@composio/ao-core";
 import { execFile } from "node:child_process";
-import { writeFile, mkdir, readFile, rename } from "node:fs/promises";
+import { writeFile, mkdir, readFile, rename, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
 
@@ -21,6 +21,22 @@ const execFileAsync = promisify(execFile);
 
 /** Shared bin directory for ao shell wrappers (prepended to PATH) */
 const AO_BIN_DIR = join(homedir(), ".ao", "bin");
+const CODEX_SESSIONS_DIR = join(homedir(), ".codex", "sessions");
+
+/** Rough fallback pricing used when Codex rollout files do not include USD cost fields. */
+const INPUT_COST_USD_PER_MILLION = 3.0;
+const OUTPUT_COST_USD_PER_MILLION = 15.0;
+
+interface ParsedCodexSessionData {
+  summary: string | null;
+  summaryIsFallback?: boolean;
+  model: string | null;
+  cost?: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCostUsd: number;
+  };
+}
 
 // =============================================================================
 // Plugin Manifest
@@ -227,11 +243,7 @@ async function setupCodexWorkspace(workspacePath: string): Promise<void> {
   // 1. Write shared wrappers to ~/.ao/bin/
   await mkdir(AO_BIN_DIR, { recursive: true });
 
-  await atomicWriteFile(
-    join(AO_BIN_DIR, "ao-metadata-helper.sh"),
-    AO_METADATA_HELPER,
-    0o755,
-  );
+  await atomicWriteFile(join(AO_BIN_DIR, "ao-metadata-helper.sh"), AO_METADATA_HELPER, 0o755);
 
   // Only write wrappers if they don't exist or are outdated (check marker)
   const markerPath = join(AO_BIN_DIR, ".ao-version");
@@ -268,6 +280,252 @@ async function setupCodexWorkspace(workspacePath: string): Promise<void> {
       : AO_AGENTS_MD_SECTION.trimStart();
     await writeFile(agentsMdPath, content, "utf-8");
   }
+}
+
+// =============================================================================
+// Codex Session Parsing
+// =============================================================================
+
+interface SessionFileInfo {
+  path: string;
+  mtimeMs: number;
+}
+
+interface TokenUsage {
+  input: number;
+  cachedInput: number;
+  output: number;
+  reasoningOutput: number;
+}
+
+function normalizePath(path: string): string {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/g, "");
+  return normalized || "/";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const compact = value.trim().replace(/\s+/g, " ");
+  if (compact.length <= maxLength) return compact;
+  return compact.slice(0, maxLength) + "...";
+}
+
+function getMessageText(content: unknown): string | null {
+  if (!Array.isArray(content)) return null;
+  const parts: string[] = [];
+  for (const item of content) {
+    const part = asRecord(item);
+    if (!part) continue;
+    const outputText = part["text"];
+    if (typeof outputText === "string" && outputText.trim() !== "") {
+      parts.push(outputText);
+      continue;
+    }
+    const inputText = part["input_text"];
+    if (typeof inputText === "string" && inputText.trim() !== "") {
+      parts.push(inputText);
+      continue;
+    }
+    const altText = part["output_text"];
+    if (typeof altText === "string" && altText.trim() !== "") {
+      parts.push(altText);
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return parts.join("\n");
+}
+
+function extractTokenUsage(value: unknown): TokenUsage | null {
+  const usage = asRecord(value);
+  if (!usage) return null;
+
+  const input = asNumber(usage["input_tokens"]) ?? 0;
+  const cachedInput =
+    asNumber(usage["cached_input_tokens"]) ?? asNumber(usage["cached_tokens"]) ?? 0;
+  const output = asNumber(usage["output_tokens"]) ?? 0;
+  const reasoningOutput =
+    asNumber(usage["reasoning_output_tokens"]) ?? asNumber(usage["reasoning_tokens"]) ?? 0;
+
+  if (input === 0 && cachedInput === 0 && output === 0 && reasoningOutput === 0) {
+    return null;
+  }
+
+  return { input, cachedInput, output, reasoningOutput };
+}
+
+function estimateCostUsd(inputTokens: number, outputTokens: number): number {
+  return (
+    (inputTokens / 1_000_000) * INPUT_COST_USD_PER_MILLION +
+    (outputTokens / 1_000_000) * OUTPUT_COST_USD_PER_MILLION
+  );
+}
+
+async function listCodexSessionFiles(dir: string, depth = 4): Promise<SessionFileInfo[]> {
+  if (depth < 0) return [];
+
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    return [];
+  }
+
+  const files: SessionFileInfo[] = [];
+  for (const entry of entries) {
+    if (!entry || entry.startsWith(".")) continue;
+    const fullPath = join(dir, entry);
+    let fileStat;
+    try {
+      fileStat = await stat(fullPath);
+    } catch {
+      continue;
+    }
+
+    if (fileStat.isDirectory()) {
+      files.push(...(await listCodexSessionFiles(fullPath, depth - 1)));
+      continue;
+    }
+
+    if (!fileStat.isFile() || !entry.endsWith(".jsonl")) continue;
+    files.push({ path: fullPath, mtimeMs: fileStat.mtimeMs });
+  }
+
+  return files;
+}
+
+function parseCodexSessionJsonl(
+  content: string,
+  workspacePath: string,
+): ParsedCodexSessionData | null {
+  const targetPath = normalizePath(workspacePath);
+  let matchesWorkspace = false;
+
+  let model: string | null = null;
+  let latestAssistantMessage: string | null = null;
+  let firstUserMessage: string | null = null;
+
+  let maxTotal: TokenUsage = { input: 0, cachedInput: 0, output: 0, reasoningOutput: 0 };
+  let sawTotalUsage = false;
+  let summedLast: TokenUsage = { input: 0, cachedInput: 0, output: 0, reasoningOutput: 0 };
+  let sawLastUsage = false;
+
+  const lines = content.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    const record = asRecord(parsed);
+    if (!record) continue;
+    const type = typeof record["type"] === "string" ? record["type"] : null;
+    const payload = asRecord(record["payload"]);
+
+    // Match session files using workspace cwd.
+    const payloadCwd = payload && typeof payload["cwd"] === "string" ? payload["cwd"] : null;
+    if (payloadCwd && normalizePath(payloadCwd) === targetPath) {
+      matchesWorkspace = true;
+    }
+
+    // Extract model from turn_context (or any payload that includes model).
+    if (payload && typeof payload["model"] === "string") {
+      model = payload["model"];
+    }
+
+    // Extract a concise summary candidate from response messages.
+    if (type === "response_item" && payload && payload["type"] === "message") {
+      const role = typeof payload["role"] === "string" ? payload["role"] : null;
+      const messageText = getMessageText(payload["content"]);
+      if (!messageText) continue;
+
+      if (role === "assistant") {
+        latestAssistantMessage = messageText;
+      } else if (role === "user" && firstUserMessage === null) {
+        firstUserMessage = messageText;
+      }
+    }
+
+    // Extract token usage from token_count events.
+    if (type !== "event_msg" || !payload || payload["type"] !== "token_count") {
+      continue;
+    }
+
+    const info = asRecord(payload["info"]);
+    const totalUsage = extractTokenUsage(
+      (info && info["total_token_usage"]) ?? payload["total_token_usage"],
+    );
+    if (totalUsage) {
+      sawTotalUsage = true;
+      maxTotal = {
+        input: Math.max(maxTotal.input, totalUsage.input),
+        cachedInput: Math.max(maxTotal.cachedInput, totalUsage.cachedInput),
+        output: Math.max(maxTotal.output, totalUsage.output),
+        reasoningOutput: Math.max(maxTotal.reasoningOutput, totalUsage.reasoningOutput),
+      };
+      continue;
+    }
+
+    const lastUsage = extractTokenUsage(
+      (info && info["last_token_usage"]) ??
+        (info && info["token_usage"]) ??
+        payload["last_token_usage"],
+    );
+    if (lastUsage) {
+      sawLastUsage = true;
+      summedLast = {
+        input: summedLast.input + lastUsage.input,
+        cachedInput: summedLast.cachedInput + lastUsage.cachedInput,
+        output: summedLast.output + lastUsage.output,
+        reasoningOutput: summedLast.reasoningOutput + lastUsage.reasoningOutput,
+      };
+    }
+  }
+
+  if (!matchesWorkspace) return null;
+
+  const summary = latestAssistantMessage
+    ? truncateText(latestAssistantMessage, 240)
+    : firstUserMessage
+      ? truncateText(firstUserMessage, 120)
+      : model
+        ? `Codex session (${model})`
+        : null;
+  const summaryIsFallback = !latestAssistantMessage && summary !== null ? true : undefined;
+
+  let cost: ParsedCodexSessionData["cost"];
+  const usage = sawTotalUsage ? maxTotal : sawLastUsage ? summedLast : null;
+  if (usage) {
+    const inputTokens = usage.input + usage.cachedInput;
+    const outputTokens = usage.output + usage.reasoningOutput;
+    if (inputTokens > 0 || outputTokens > 0) {
+      cost = {
+        inputTokens,
+        outputTokens,
+        estimatedCostUsd: estimateCostUsd(inputTokens, outputTokens),
+      };
+    }
+  }
+
+  return { summary, summaryIsFallback, model, cost };
 }
 
 // =============================================================================
@@ -342,7 +600,10 @@ function createCodexAgent(): Agent {
       return "active";
     },
 
-    async getActivityState(session: Session, _readyThresholdMs?: number): Promise<ActivityDetection | null> {
+    async getActivityState(
+      session: Session,
+      _readyThresholdMs?: number,
+    ): Promise<ActivityDetection | null> {
       // Check if process is running first
       if (!session.runtimeHandle) return { state: "exited" };
       const running = await this.isProcessRunning(session.runtimeHandle);
@@ -409,8 +670,32 @@ function createCodexAgent(): Agent {
       }
     },
 
-    async getSessionInfo(_session: Session): Promise<AgentSessionInfo | null> {
-      // Codex doesn't have JSONL session files for introspection yet
+    async getSessionInfo(session: Session): Promise<AgentSessionInfo | null> {
+      if (!session.workspacePath) return null;
+
+      const files = await listCodexSessionFiles(CODEX_SESSIONS_DIR);
+      if (files.length === 0) return null;
+      files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+      for (const file of files) {
+        let content: string;
+        try {
+          content = await readFile(file.path, "utf-8");
+        } catch {
+          continue;
+        }
+
+        const parsed = parseCodexSessionJsonl(content, session.workspacePath);
+        if (!parsed) continue;
+
+        return {
+          summary: parsed.summary,
+          summaryIsFallback: parsed.summaryIsFallback,
+          agentSessionId: basename(file.path, ".jsonl"),
+          cost: parsed.cost,
+        };
+      }
+
       return null;
     },
 
