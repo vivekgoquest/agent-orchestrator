@@ -131,7 +131,8 @@ describe.skipIf(!canRun)("agent-codex (integration)", () => {
     expect(exitedActivityState?.state).toBe("exited");
   });
 
-  it("getSessionInfo → null (not implemented for codex)", () => {
-    expect(sessionInfo).toBeNull();
+  it("getSessionInfo → returns parsed session metadata from rollout logs", () => {
+    expect(sessionInfo).not.toBeNull();
+    expect(sessionInfo?.agentSessionId).toBeTruthy();
   });
 });

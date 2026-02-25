@@ -10,6 +10,8 @@ const {
   mockMkdir,
   mockReadFile,
   mockRename,
+  mockReaddir,
+  mockStat,
   mockHomedir,
 } = vi.hoisted(() => ({
   mockExecFileAsync: vi.fn(),
@@ -17,6 +19,8 @@ const {
   mockMkdir: vi.fn().mockResolvedValue(undefined),
   mockReadFile: vi.fn(),
   mockRename: vi.fn().mockResolvedValue(undefined),
+  mockReaddir: vi.fn(),
+  mockStat: vi.fn(),
   mockHomedir: vi.fn(() => "/mock/home"),
 }));
 
@@ -32,6 +36,8 @@ vi.mock("node:fs/promises", () => ({
   mkdir: mockMkdir,
   readFile: mockReadFile,
   rename: mockRename,
+  readdir: mockReaddir,
+  stat: mockStat,
 }));
 
 vi.mock("node:crypto", () => ({
@@ -176,9 +182,7 @@ describe("getLaunchCommand", () => {
   });
 
   it("escapes dangerous characters in prompt", () => {
-    const cmd = agent.getLaunchCommand(
-      makeLaunchConfig({ prompt: "$(rm -rf /); `evil`; $HOME" }),
-    );
+    const cmd = agent.getLaunchCommand(makeLaunchConfig({ prompt: "$(rm -rf /); `evil`; $HOME" }));
     // Single-quoted strings prevent shell expansion
     expect(cmd).toContain("-- '$(rm -rf /); `evil`; $HOME'");
   });
@@ -400,12 +404,12 @@ describe("detectActivity", () => {
   it("returns waiting_input when permission prompt follows historical activity", () => {
     // Permission prompt at the bottom should NOT be overridden by historical
     // spinner/esc output higher in the buffer.
-    expect(
-      agent.detectActivity("✶ Writing files\nDone.\napproval required\n"),
-    ).toBe("waiting_input");
-    expect(
-      agent.detectActivity("Working (esc to interrupt)\nFinished\n(y)es / (n)o\n"),
-    ).toBe("waiting_input");
+    expect(agent.detectActivity("✶ Writing files\nDone.\napproval required\n")).toBe(
+      "waiting_input",
+    );
+    expect(agent.detectActivity("Working (esc to interrupt)\nFinished\n(y)es / (n)o\n")).toBe(
+      "waiting_input",
+    );
   });
 
   // -- Active states --
@@ -484,13 +488,185 @@ describe("getActivityState", () => {
 describe("getSessionInfo", () => {
   const agent = create();
 
-  it("always returns null (not implemented)", async () => {
-    expect(await agent.getSessionInfo(makeSession())).toBeNull();
-    expect(await agent.getSessionInfo(makeSession({ workspacePath: "/some/path" }))).toBeNull();
-  });
-
   it("returns null even with null workspacePath", async () => {
     expect(await agent.getSessionInfo(makeSession({ workspacePath: null }))).toBeNull();
+  });
+
+  it("returns null when ~/.codex/sessions does not exist", async () => {
+    mockReaddir.mockRejectedValue(new Error("ENOENT"));
+    expect(await agent.getSessionInfo(makeSession())).toBeNull();
+  });
+
+  it("returns null when no rollout matches the workspace cwd", async () => {
+    const root = "/mock/home/.codex/sessions";
+    const file = `${root}/rollout-1.jsonl`;
+    mockReaddir.mockResolvedValue(["rollout-1.jsonl"]);
+    mockStat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => true,
+      mtimeMs: 1_000,
+    });
+    mockReadFile.mockResolvedValue(
+      '{"type":"session_meta","payload":{"cwd":"/other/workspace"}}\n',
+    );
+
+    expect(
+      await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" })),
+    ).toBeNull();
+    expect(mockReadFile).toHaveBeenCalledWith(file, "utf-8");
+  });
+
+  it("extracts summary, session id, and cost from matching rollout", async () => {
+    const root = "/mock/home/.codex/sessions";
+    const file = `${root}/rollout-2026-02-25T01-02-03-abc123.jsonl`;
+    mockReaddir.mockResolvedValue(["rollout-2026-02-25T01-02-03-abc123.jsonl"]);
+    mockStat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => true,
+      mtimeMs: 2_000,
+    });
+    mockReadFile.mockResolvedValue(
+      [
+        '{"type":"session_meta","payload":{"cwd":"/workspace/test"}}',
+        '{"type":"turn_context","payload":{"cwd":"/workspace/test","model":"gpt-5-codex"}}',
+        '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","input_text":"Investigate flaky test"}]}}',
+        '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"I fixed the flake by removing shared mutable state."}]}}',
+        '{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":200,"output_tokens":300,"reasoning_output_tokens":50}}}}',
+      ].join("\n"),
+    );
+
+    const result = await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" }));
+    expect(result).not.toBeNull();
+    expect(result?.agentSessionId).toBe("rollout-2026-02-25T01-02-03-abc123");
+    expect(result?.summary).toBe("I fixed the flake by removing shared mutable state.");
+    expect(result?.summaryIsFallback).toBeUndefined();
+    expect(result?.cost?.inputTokens).toBe(1200);
+    expect(result?.cost?.outputTokens).toBe(350);
+    expect(result?.cost?.estimatedCostUsd).toBeCloseTo(
+      (1200 / 1_000_000) * 3 + (350 / 1_000_000) * 15,
+      10,
+    );
+  });
+
+  it("falls back to first user message when no assistant summary is available", async () => {
+    mockReaddir.mockResolvedValue(["rollout-user-only.jsonl"]);
+    mockStat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => true,
+      mtimeMs: 3_000,
+    });
+    mockReadFile.mockResolvedValue(
+      [
+        '{"type":"session_meta","payload":{"cwd":"/workspace/test"}}',
+        '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","input_text":"This is a very long user prompt that should become a fallback summary when no assistant output exists in the rollout log."}]}}',
+      ].join("\n"),
+    );
+
+    const result = await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" }));
+    expect(result?.summary).toContain("This is a very long user prompt");
+    expect(result?.summaryIsFallback).toBe(true);
+  });
+
+  it("uses token_count last_token_usage when total_token_usage is unavailable", async () => {
+    mockReaddir.mockResolvedValue(["rollout-last-usage.jsonl"]);
+    mockStat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => true,
+      mtimeMs: 4_000,
+    });
+    mockReadFile.mockResolvedValue(
+      [
+        '{"type":"session_meta","payload":{"cwd":"/workspace/test"}}',
+        '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"cached_input_tokens":5,"output_tokens":3,"reasoning_output_tokens":2}}}}',
+        '{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":8,"cached_input_tokens":4,"output_tokens":6,"reasoning_output_tokens":1}}}}',
+      ].join("\n"),
+    );
+
+    const result = await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" }));
+    expect(result?.cost?.inputTokens).toBe(27);
+    expect(result?.cost?.outputTokens).toBe(12);
+  });
+
+  it("recurses into date directories and picks the newest matching session", async () => {
+    const root = "/mock/home/.codex/sessions";
+    const year = `${root}/2026`;
+    const month = `${year}/02`;
+    const day = `${month}/25`;
+    const newer = `${day}/rollout-new.jsonl`;
+    const older = `${day}/rollout-old.jsonl`;
+
+    mockReaddir.mockImplementation((path: string) => {
+      if (path === root) return Promise.resolve(["2026"]);
+      if (path === year) return Promise.resolve(["02"]);
+      if (path === month) return Promise.resolve(["25"]);
+      if (path === day) return Promise.resolve(["rollout-old.jsonl", "rollout-new.jsonl"]);
+      return Promise.resolve([]);
+    });
+
+    mockStat.mockImplementation((path: string) => {
+      if ([root, year, month, day].includes(path)) {
+        return Promise.resolve({
+          isDirectory: () => true,
+          isFile: () => false,
+          mtimeMs: 0,
+        });
+      }
+      if (path === older) {
+        return Promise.resolve({
+          isDirectory: () => false,
+          isFile: () => true,
+          mtimeMs: 1_000,
+        });
+      }
+      if (path === newer) {
+        return Promise.resolve({
+          isDirectory: () => false,
+          isFile: () => true,
+          mtimeMs: 2_000,
+        });
+      }
+      throw new Error("ENOENT");
+    });
+
+    mockReadFile.mockImplementation((path: string) => {
+      if (path === newer) {
+        return Promise.resolve(
+          '{"type":"session_meta","payload":{"cwd":"/workspace/test"}}\n' +
+            '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"new summary"}]}}',
+        );
+      }
+      if (path === older) {
+        return Promise.resolve(
+          '{"type":"session_meta","payload":{"cwd":"/workspace/test"}}\n' +
+            '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"old summary"}]}}',
+        );
+      }
+      throw new Error("ENOENT");
+    });
+
+    const result = await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" }));
+    expect(result?.summary).toBe("new summary");
+    expect(result?.agentSessionId).toBe("rollout-new");
+  });
+
+  it("skips malformed lines and still parses valid entries", async () => {
+    mockReaddir.mockResolvedValue(["rollout-malformed.jsonl"]);
+    mockStat.mockResolvedValue({
+      isDirectory: () => false,
+      isFile: () => true,
+      mtimeMs: 5_000,
+    });
+    mockReadFile.mockResolvedValue(
+      [
+        "not-json",
+        '{"type":"session_meta","payload":{"cwd":"/workspace/test"}}',
+        "{broken",
+        '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"valid summary"}]}}',
+      ].join("\n"),
+    );
+
+    const result = await agent.getSessionInfo(makeSession({ workspacePath: "/workspace/test" }));
+    expect(result?.summary).toBe("valid summary");
   });
 });
 
@@ -707,8 +883,7 @@ describe("setupWorkspaceHooks", () => {
     // Every wrapper file should be written to a .tmp file first, then renamed
     // This ensures concurrent readers never see a partially written file
     const tmpWrites = mockWriteFile.mock.calls.filter(
-      (call: [string, string, object]) =>
-        typeof call[0] === "string" && call[0].includes(".tmp."),
+      (call: [string, string, object]) => typeof call[0] === "string" && call[0].includes(".tmp."),
     );
     const renames = mockRename.mock.calls;
 
@@ -729,7 +904,9 @@ describe("setupWorkspaceHooks", () => {
         return Promise.resolve("0.1.0");
       }
       if (typeof path === "string" && path.endsWith("AGENTS.md")) {
-        return Promise.resolve("# Existing\n\n## Agent Orchestrator (ao) Session\n\nAlready here.\n");
+        return Promise.resolve(
+          "# Existing\n\n## Agent Orchestrator (ao) Session\n\nAlready here.\n",
+        );
       }
       return Promise.reject(new Error("ENOENT"));
     });
@@ -788,10 +965,9 @@ describe("shell wrapper content", () => {
 
     // With atomic writes, content is written to a .tmp. file
     const call = mockWriteFile.mock.calls.find(
-      (c: [string, string, object]) =>
-        typeof c[0] === "string" && c[0].includes(`/${name}.tmp.`),
+      (c: [string, string, object]) => typeof c[0] === "string" && c[0].includes(`/${name}.tmp.`),
     );
-    return call ? call[1] as string : "";
+    return call ? (call[1] as string) : "";
   }
 
   describe("metadata helper", () => {
