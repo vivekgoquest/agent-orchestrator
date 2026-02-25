@@ -58,6 +58,16 @@ const AgentSpecificConfigSchema = z
   })
   .passthrough();
 
+const VerifierRoleConfigSchema = z
+  .object({
+    runtime: z.string().min(1).optional(),
+    agent: z.string().min(1).optional(),
+  })
+  .strict()
+  .refine((value) => value.runtime !== undefined || value.agent !== undefined, {
+    message: "verifier must define at least one of 'runtime' or 'agent'",
+  });
+
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
   repo: z.string(),
@@ -75,6 +85,7 @@ const ProjectConfigSchema = z.object({
   symlinks: z.array(z.string()).optional(),
   postCreate: z.array(z.string()).optional(),
   agentConfig: AgentSpecificConfigSchema.optional(),
+  verifier: VerifierRoleConfigSchema.optional(),
   reactions: z.record(ReactionConfigSchema.partial()).optional(),
   agentRules: z.string().optional(),
   agentRulesFile: z.string().optional(),
@@ -86,6 +97,7 @@ const DefaultPluginsSchema = z.object({
   agent: z.string().default("claude-code"),
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
+  verifier: VerifierRoleConfigSchema.optional(),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -128,6 +140,12 @@ function expandPaths(config: OrchestratorConfig): OrchestratorConfig {
 
 /** Apply defaults to project configs */
 function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
+  const defaultVerifier = {
+    runtime: config.defaults.verifier?.runtime ?? config.defaults.runtime,
+    agent: config.defaults.verifier?.agent ?? config.defaults.agent,
+  };
+  config.defaults.verifier = defaultVerifier;
+
   for (const [id, project] of Object.entries(config.projects)) {
     // Derive name from project ID if not set
     if (!project.name) {
@@ -149,6 +167,12 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
     if (!project.tracker) {
       project.tracker = { plugin: "github" };
     }
+
+    // Apply verifier defaults with per-project overrides
+    project.verifier = {
+      runtime: project.verifier?.runtime ?? defaultVerifier.runtime,
+      agent: project.verifier?.agent ?? defaultVerifier.agent,
+    };
   }
 
   return config;

@@ -21,6 +21,10 @@ defaults:
   agent: claude-code      # claude-code | codex | aider | goose | custom
   workspace: worktree     # worktree | clone | copy
   notifiers: [desktop]    # desktop | slack | discord | webhook | email
+  # Optional verifier role defaults (reserved for future verifier flows)
+  # verifier:
+  #   runtime: process
+  #   agent: codex
 
 # Projects — at minimum, specify repo and path
 projects:
@@ -47,6 +51,11 @@ projects:
     # agentConfig:
     #   permissions: skip    # --dangerously-skip-permissions
     #   model: opus
+
+    # Optional verifier role overrides for this project
+    # verifier:
+    #   agent: claude-code
+    #   runtime: tmux
 
     # Inline rules included in every agent prompt for this project
     # agentRules: |

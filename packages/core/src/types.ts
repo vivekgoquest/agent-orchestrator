@@ -865,6 +865,16 @@ export interface DefaultPlugins {
   agent: string;
   workspace: string;
   notifiers: string[];
+  /** Optional verifier role defaults (reserved for verifier workflows). */
+  verifier?: VerifierRoleConfig;
+}
+
+/** Verifier role plugin selection (agent/runtime). */
+export interface VerifierRoleConfig {
+  /** Runtime plugin name for verifier sessions. */
+  runtime?: string;
+  /** Agent plugin name for verifier sessions. */
+  agent?: string;
 }
 
 export interface ProjectConfig {
@@ -906,6 +916,9 @@ export interface ProjectConfig {
 
   /** Agent-specific configuration */
   agentConfig?: AgentSpecificConfig;
+
+  /** Verifier role overrides (agent/runtime) for this project. */
+  verifier?: VerifierRoleConfig;
 
   /** Per-project reaction overrides */
   reactions?: Record<string, Partial<ReactionConfig>>;
