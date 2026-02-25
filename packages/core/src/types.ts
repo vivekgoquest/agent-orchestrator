@@ -1173,7 +1173,6 @@ export interface SessionMetadata {
   createdAt?: string;
   runtimeHandle?: string;
   restoredAt?: string;
-  planId?: string;
   planTaskId?: string;
   planTaskValidated?: string;
   dashboardPort?: number;
