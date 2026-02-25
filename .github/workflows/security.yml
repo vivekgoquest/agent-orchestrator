@@ -33,7 +33,7 @@ jobs:
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.repository_owner == 'ComposioHQ'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
