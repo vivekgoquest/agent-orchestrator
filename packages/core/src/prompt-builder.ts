@@ -13,7 +13,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { ProjectConfig } from "./types.js";
+import type { AcceptanceContract, ProjectConfig } from "./types.js";
 
 // =============================================================================
 // LAYER 1: BASE AGENT PROMPT
@@ -56,8 +56,76 @@ export interface PromptBuildConfig {
   /** Pre-fetched issue context from tracker.generatePrompt() */
   issueContext?: string;
 
+  /** Optional acceptance contract for mandatory completion checks */
+  acceptanceContract?: AcceptanceContract;
+
   /** Explicit user prompt (appended last) */
   userPrompt?: string;
+}
+
+const ACCEPTANCE_SECTIONS = [
+  { key: "functional", label: "Functional Requirements" },
+  { key: "testing", label: "Testing Requirements" },
+  { key: "performance", label: "Performance Requirements" },
+  { key: "security", label: "Security Requirements" },
+  { key: "docs", label: "Documentation Requirements" },
+] as const;
+
+function getAcceptanceItems(
+  contract: AcceptanceContract | undefined,
+  key: (typeof ACCEPTANCE_SECTIONS)[number]["key"],
+): string[] {
+  if (!contract) return [];
+  return (contract[key] ?? []).map((item) => item.trim()).filter(Boolean);
+}
+
+function hasAcceptanceContract(contract: AcceptanceContract | undefined): boolean {
+  if (!contract) return false;
+  if (contract.completionPayloadFormat?.trim()) return true;
+  return ACCEPTANCE_SECTIONS.some(({ key }) => getAcceptanceItems(contract, key).length > 0);
+}
+
+function buildCompletionPayloadTemplate(): string {
+  return `\`\`\`json
+{
+  "status": "<completed|blocked>",
+  "summary": "<one-line summary>",
+  "acceptance": {
+    "functional": { "status": "<pass|fail|n/a>", "evidence": ["<proof>"] },
+    "testing": { "status": "<pass|fail|n/a>", "evidence": ["<proof>"] },
+    "performance": { "status": "<pass|fail|n/a>", "evidence": ["<proof>"] },
+    "security": { "status": "<pass|fail|n/a>", "evidence": ["<proof>"] },
+    "docs": { "status": "<pass|fail|n/a>", "evidence": ["<proof>"] }
+  },
+  "followups": ["<remaining work or blockers>"]
+}
+\`\`\``;
+}
+
+function buildAcceptanceLayer(contract: AcceptanceContract): string {
+  const lines: string[] = [];
+  lines.push("## Acceptance Checklist (MANDATORY)");
+  lines.push("Do not mark this task complete until every mandatory item is addressed.");
+
+  for (const section of ACCEPTANCE_SECTIONS) {
+    const items = getAcceptanceItems(contract, section.key);
+    lines.push(`\n### ${section.label}`);
+    if (items.length === 0) {
+      lines.push(
+        "- [ ] No explicit requirement provided. Verify this area and report as `n/a` if not applicable.",
+      );
+      continue;
+    }
+    for (const item of items) {
+      lines.push(`- [ ] ${item}`);
+    }
+  }
+
+  lines.push("\n## Completion Payload (REQUIRED)");
+  lines.push("When you finish, reply with a JSON object in this exact shape:");
+  lines.push(contract.completionPayloadFormat?.trim() || buildCompletionPayloadTemplate());
+
+  return lines.join("\n");
 }
 
 // =============================================================================
@@ -65,7 +133,7 @@ export interface PromptBuildConfig {
 // =============================================================================
 
 function buildConfigLayer(config: PromptBuildConfig): string {
-  const { project, projectId, issueId, issueContext } = config;
+  const { project, projectId, issueId, issueContext, acceptanceContract } = config;
   const lines: string[] = [];
 
   lines.push("## Project Context");
@@ -88,6 +156,10 @@ function buildConfigLayer(config: PromptBuildConfig): string {
   if (issueContext) {
     lines.push(`\n## Issue Details`);
     lines.push(issueContext);
+  }
+
+  if (acceptanceContract && hasAcceptanceContract(acceptanceContract)) {
+    lines.push(`\n${buildAcceptanceLayer(acceptanceContract)}`);
   }
 
   // Include reaction rules so the agent knows what to expect
