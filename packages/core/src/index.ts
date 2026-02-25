@@ -25,6 +25,9 @@ export { createPluginRegistry } from "./plugin-registry.js";
 export {
   readMetadata,
   readMetadataRaw,
+  readPlanBlob,
+  writePlanBlob,
+  updatePlanStatus,
   writeMetadata,
   updateMetadata,
   deleteMetadata,
