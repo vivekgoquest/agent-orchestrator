@@ -185,6 +185,11 @@ describe("batch-spawn scheduler integration", () => {
     expect(mockSessionManager.spawn).toHaveBeenCalledWith({
       projectId: "my-app",
       issueId: "INT-302",
+      planTask: {
+        planId: "workplan",
+        taskId: "task-2",
+        validated: true,
+      },
       agent: undefined,
     });
 
