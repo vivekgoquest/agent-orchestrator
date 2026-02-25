@@ -12,7 +12,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/ComposioHQ/agent-orchestrator.git
+git clone https://github.com/vivekgoquest/agent-orchestrator.git
 cd agent-orchestrator
 
 # Install dependencies

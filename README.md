@@ -4,10 +4,10 @@
 
 Spawn parallel AI coding agents, each in its own git worktree. Agents autonomously fix CI failures, address review comments, and open PRs — you supervise from one dashboard.
 
-[![GitHub stars](https://img.shields.io/github/stars/ComposioHQ/agent-orchestrator?style=flat-square)](https://github.com/ComposioHQ/agent-orchestrator/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/vivekgoquest/agent-orchestrator?style=flat-square)](https://github.com/vivekgoquest/agent-orchestrator/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![PRs merged](https://img.shields.io/badge/PRs_merged-61-brightgreen?style=flat-square)](https://github.com/ComposioHQ/agent-orchestrator/pulls?q=is%3Amerged)
-[![Tests](https://img.shields.io/badge/test_cases-3%2C288-blue?style=flat-square)](https://github.com/ComposioHQ/agent-orchestrator/releases/tag/metrics-v1)
+[![PRs merged](https://img.shields.io/badge/PRs_merged-61-brightgreen?style=flat-square)](https://github.com/vivekgoquest/agent-orchestrator/pulls?q=is%3Amerged)
+[![Tests](https://img.shields.io/badge/test_cases-3%2C288-blue?style=flat-square)](https://github.com/vivekgoquest/agent-orchestrator/releases/tag/metrics-v1)
 
 </div>
 
@@ -23,7 +23,7 @@ Agent Orchestrator manages fleets of AI coding agents working in parallel on you
 
 ```bash
 # Install
-git clone https://github.com/ComposioHQ/agent-orchestrator.git
+git clone https://github.com/vivekgoquest/agent-orchestrator.git
 cd agent-orchestrator && bash scripts/setup.sh
 
 # Configure your project
