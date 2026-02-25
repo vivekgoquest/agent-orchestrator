@@ -203,6 +203,80 @@ describe("check (single session)", () => {
     expect(meta!["status"]).toBe("working");
   });
 
+  it("detects done state from complete worker evidence artifacts", async () => {
+    const workspacePath = join(tmpDir, "ws");
+    const evidenceDir = join(workspacePath, ".ao", "evidence", "app-1");
+    mkdirSync(evidenceDir, { recursive: true });
+    writeFileSync(
+      join(evidenceDir, "command-log.json"),
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        entries: [{ command: "pnpm --filter @composio/ao-core test", exitCode: 0 }],
+      }),
+    );
+    writeFileSync(
+      join(evidenceDir, "tests-run.json"),
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        tests: [{ command: "pnpm --filter @composio/ao-core test", status: "passed" }],
+      }),
+    );
+    writeFileSync(
+      join(evidenceDir, "changed-paths.json"),
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        paths: ["packages/core/src/evidence.ts"],
+      }),
+    );
+    writeFileSync(
+      join(evidenceDir, "known-risks.json"),
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        risks: [{ risk: "None" }],
+      }),
+    );
+
+    const session = makeSession({ status: "working", workspacePath, pr: null });
+    session.metadata = {
+      evidenceSchemaVersion: "1",
+      evidenceDir,
+      evidenceCommandLog: join(evidenceDir, "command-log.json"),
+      evidenceTestsRun: join(evidenceDir, "tests-run.json"),
+      evidenceChangedPaths: join(evidenceDir, "changed-paths.json"),
+      evidenceKnownRisks: join(evidenceDir, "known-risks.json"),
+    };
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: workspacePath,
+      branch: "main",
+      status: "working",
+      project: "my-app",
+      evidenceSchemaVersion: "1",
+      evidenceDir,
+      evidenceCommandLog: join(evidenceDir, "command-log.json"),
+      evidenceTestsRun: join(evidenceDir, "tests-run.json"),
+      evidenceChangedPaths: join(evidenceDir, "changed-paths.json"),
+      evidenceKnownRisks: join(evidenceDir, "known-risks.json"),
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("done");
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta!["status"]).toBe("done");
+  });
+
   it("detects killed state when runtime is dead", async () => {
     vi.mocked(mockRuntime.isAlive).mockResolvedValue(false);
 

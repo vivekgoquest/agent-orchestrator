@@ -233,6 +233,12 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     planVersion,
     planStatus,
     planPath: raw["planPath"],
+    evidenceSchemaVersion: raw["evidenceSchemaVersion"],
+    evidenceDir: raw["evidenceDir"],
+    evidenceCommandLog: raw["evidenceCommandLog"],
+    evidenceTestsRun: raw["evidenceTestsRun"],
+    evidenceChangedPaths: raw["evidenceChangedPaths"],
+    evidenceKnownRisks: raw["evidenceKnownRisks"],
   };
 }
 
@@ -283,6 +289,14 @@ export function writeMetadata(
   if (metadata.planVersion !== undefined) data["planVersion"] = String(metadata.planVersion);
   if (metadata.planStatus) data["planStatus"] = metadata.planStatus;
   if (metadata.planPath) data["planPath"] = metadata.planPath;
+  if (metadata.evidenceSchemaVersion)
+    data["evidenceSchemaVersion"] = metadata.evidenceSchemaVersion;
+  if (metadata.evidenceDir) data["evidenceDir"] = metadata.evidenceDir;
+  if (metadata.evidenceCommandLog) data["evidenceCommandLog"] = metadata.evidenceCommandLog;
+  if (metadata.evidenceTestsRun) data["evidenceTestsRun"] = metadata.evidenceTestsRun;
+  if (metadata.evidenceChangedPaths)
+    data["evidenceChangedPaths"] = metadata.evidenceChangedPaths;
+  if (metadata.evidenceKnownRisks) data["evidenceKnownRisks"] = metadata.evidenceKnownRisks;
 
   writeFileSync(path, serializeMetadata(data), "utf-8");
 }

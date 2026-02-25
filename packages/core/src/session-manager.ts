@@ -55,6 +55,10 @@ import {
   generateConfigHash,
   validateAndStoreOrigin,
 } from "./paths.js";
+import {
+  initializeWorkerEvidenceArtifacts,
+  WORKER_EVIDENCE_SCHEMA_VERSION,
+} from "./evidence.js";
 
 /** Escape regex metacharacters in a string. */
 function escapeRegex(str: string): string {
@@ -468,7 +472,10 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
     };
 
     let handle: RuntimeHandle;
+    let evidence: ReturnType<typeof initializeWorkerEvidenceArtifacts>;
     try {
+      evidence = initializeWorkerEvidenceArtifacts(workspacePath, sessionId);
+
       const launchCommand = plugins.agent.getLaunchCommand(agentLaunchConfig);
       const environment = plugins.agent.getEnvironment(agentLaunchConfig);
 
@@ -481,6 +488,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
           AO_SESSION: sessionId,
           AO_DATA_DIR: sessionsDir, // Pass sessions directory (not root dataDir)
           AO_SESSION_NAME: sessionId, // User-facing session name
+          AO_EVIDENCE_DIR: evidence.paths.evidenceDir,
+          AO_EVIDENCE_SCHEMA_VERSION: WORKER_EVIDENCE_SCHEMA_VERSION,
           ...(tmuxName && { AO_TMUX_NAME: tmuxName }), // Tmux session name if using new arch
         },
       });
@@ -529,6 +538,12 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         agent: plugins.agent.name, // Persist agent name for lifecycle manager
         createdAt: new Date().toISOString(),
         runtimeHandle: JSON.stringify(handle),
+        evidenceSchemaVersion: evidence.metadata["evidenceSchemaVersion"],
+        evidenceDir: evidence.metadata["evidenceDir"],
+        evidenceCommandLog: evidence.metadata["evidenceCommandLog"],
+        evidenceTestsRun: evidence.metadata["evidenceTestsRun"],
+        evidenceChangedPaths: evidence.metadata["evidenceChangedPaths"],
+        evidenceKnownRisks: evidence.metadata["evidenceKnownRisks"],
       });
 
       if (plugins.agent.postLaunchSetup) {

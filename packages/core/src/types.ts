@@ -1070,6 +1070,12 @@ export interface SessionMetadata {
   planVersion?: number;
   planStatus?: PlanStatus;
   planPath?: string;
+  evidenceSchemaVersion?: string;
+  evidenceDir?: string;
+  evidenceCommandLog?: string;
+  evidenceTestsRun?: string;
+  evidenceChangedPaths?: string;
+  evidenceKnownRisks?: string;
 }
 
 /** Plan lifecycle status for orchestrator planning artifacts. */

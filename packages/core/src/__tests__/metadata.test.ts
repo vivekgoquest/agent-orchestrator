@@ -53,6 +53,12 @@ describe("writeMetadata + readMetadata", () => {
       project: "my-app",
       createdAt: "2025-01-01T00:00:00.000Z",
       runtimeHandle: '{"id":"tmux-1","runtimeName":"tmux"}',
+      evidenceSchemaVersion: "1",
+      evidenceDir: "/tmp/w/.ao/evidence/app-2",
+      evidenceCommandLog: "/tmp/w/.ao/evidence/app-2/command-log.json",
+      evidenceTestsRun: "/tmp/w/.ao/evidence/app-2/tests-run.json",
+      evidenceChangedPaths: "/tmp/w/.ao/evidence/app-2/changed-paths.json",
+      evidenceKnownRisks: "/tmp/w/.ao/evidence/app-2/known-risks.json",
     });
 
     const meta = readMetadata(dataDir, "app-2");
@@ -63,6 +69,12 @@ describe("writeMetadata + readMetadata", () => {
     expect(meta!.project).toBe("my-app");
     expect(meta!.createdAt).toBe("2025-01-01T00:00:00.000Z");
     expect(meta!.runtimeHandle).toBe('{"id":"tmux-1","runtimeName":"tmux"}');
+    expect(meta!.evidenceSchemaVersion).toBe("1");
+    expect(meta!.evidenceDir).toBe("/tmp/w/.ao/evidence/app-2");
+    expect(meta!.evidenceCommandLog).toBe("/tmp/w/.ao/evidence/app-2/command-log.json");
+    expect(meta!.evidenceTestsRun).toBe("/tmp/w/.ao/evidence/app-2/tests-run.json");
+    expect(meta!.evidenceChangedPaths).toBe("/tmp/w/.ao/evidence/app-2/changed-paths.json");
+    expect(meta!.evidenceKnownRisks).toBe("/tmp/w/.ao/evidence/app-2/known-risks.json");
   });
 
   it("returns null for nonexistent session", () => {
