@@ -26,6 +26,7 @@ interface PlannedTask {
 }
 
 interface PlanSchedule {
+  planId: string;
   planLabel: string;
   graph: TaskGraph;
   tasksByLookup: Map<string, PlannedTask>;
@@ -170,6 +171,7 @@ function buildPlanSchedule(
   const { readyQueue } = scheduler.getReadyQueue(graph);
 
   return {
+    planId: plan.planId,
     planLabel: `${plan.planId}.v${plan.planVersion}`,
     graph,
     tasksByLookup,
@@ -269,6 +271,7 @@ async function spawnSession(
   issueId?: string,
   openTab?: boolean,
   agent?: string,
+  planTask?: { planId: string; taskId: string; validated: boolean },
 ): Promise<string> {
   const spinner = ora("Creating session").start();
 
@@ -280,6 +283,7 @@ async function spawnSession(
       projectId,
       issueId,
       agent,
+      planTask,
     });
 
     spinner.succeed(`Session ${chalk.green(session.id)} created`);
@@ -340,6 +344,7 @@ export function registerSpawn(program: Command): void {
 
       try {
         let resolvedIssueId = issueId;
+        let planTask: { planId: string; taskId: string; validated: boolean } | undefined;
         if (opts.planSession) {
           if (!issueId) {
             throw new Error("Task ID is required when using --plan-session");
@@ -355,6 +360,11 @@ export function registerSpawn(program: Command): void {
             throw new Error(`Task ${issueId} not schedulable`);
           }
           resolvedIssueId = selectedTask.issueId;
+          planTask = {
+            planId: schedule.planId,
+            taskId: selectedTask.id,
+            validated: true,
+          };
 
           console.log(chalk.bold("Scheduling rationale:"));
           console.log(`  Plan: ${chalk.dim(schedule.planLabel)}`);
@@ -362,7 +372,7 @@ export function registerSpawn(program: Command): void {
           console.log();
         }
 
-        await spawnSession(config, projectId, resolvedIssueId, opts.open, opts.agent);
+        await spawnSession(config, projectId, resolvedIssueId, opts.open, opts.agent, planTask);
       } catch (err) {
         console.error(chalk.red(`✗ ${err}`));
         process.exit(1);
@@ -420,7 +430,11 @@ export function registerBatchSpawn(program: Command): void {
           .map((s: { issueId: string | null; id: string }) => [s.issueId!.toLowerCase(), s.id]),
       );
 
-      let targets: Array<{ issueId: string; displayTarget: string }> = issues.map((issue) => ({
+      let targets: Array<{
+        issueId: string;
+        displayTarget: string;
+        planTask?: { planId: string; taskId: string; validated: boolean };
+      }> = issues.map((issue) => ({
         issueId: issue,
         displayTarget: issue,
       }));
@@ -457,6 +471,11 @@ export function registerBatchSpawn(program: Command): void {
         targets = selected.map((task) => ({
           issueId: task.issueId,
           displayTarget: task.id,
+          planTask: {
+            planId: schedule.planId,
+            taskId: task.id,
+            validated: true,
+          },
         }));
       }
 
@@ -480,7 +499,14 @@ export function registerBatchSpawn(program: Command): void {
         }
 
         try {
-          const sessionName = await spawnSession(config, projectId, target.issueId, opts.open);
+          const sessionName = await spawnSession(
+            config,
+            projectId,
+            target.issueId,
+            opts.open,
+            undefined,
+            target.planTask,
+          );
           created.push({ session: sessionName, issue: target.displayTarget });
           spawnedIssues.add(normalizedIssue);
         } catch (err) {
