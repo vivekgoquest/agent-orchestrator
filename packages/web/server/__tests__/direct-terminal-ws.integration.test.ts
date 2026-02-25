@@ -23,27 +23,36 @@ const TMUX = findTmux();
 const TEST_SESSION = `ao-test-integration-${process.pid}`;
 const TEST_HASH_SESSION = `abcdef123456-${TEST_SESSION}`;
 
-let terminal: DirectTerminalServer;
-let port: number;
+function hasPtySupport(): boolean {
+  const shell = process.env.SHELL || "/bin/sh";
+  const env = {
+    HOME: process.env.HOME || "/tmp",
+    PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
+    TERM: "xterm-256color",
+    SHELL: shell,
+    USER: process.env.USER || "test",
+  };
 
-function supportsPtySpawning(): boolean {
   try {
-    const pty = ptySpawn(TMUX, ["-V"], {
+    const probe = ptySpawn(shell, ["-lc", "exit 0"], {
       name: "xterm-256color",
       cols: 80,
       rows: 24,
-      cwd: process.cwd(),
-      env: process.env,
+      cwd: env.HOME,
+      env,
     });
-    pty.kill();
+    probe.kill();
     return true;
   } catch {
     return false;
   }
 }
 
-const PTY_SUPPORTED = supportsPtySpawning();
-const describeIfPty = PTY_SUPPORTED ? describe : describe.skip;
+const ptySupported = hasPtySupport();
+const describeIfPty = ptySupported ? describe : describe.skip;
+
+let terminal: DirectTerminalServer;
+let port: number;
 
 // =============================================================================
 // Helpers
@@ -122,22 +131,21 @@ function waitForMarker(ws: WebSocket, marker: string, timeoutMs = 3000): Promise
 // =============================================================================
 
 beforeAll(() => {
-  if (!PTY_SUPPORTED) return;
-
-  // Create test tmux sessions
-  execFileSync(TMUX, ["new-session", "-d", "-s", TEST_SESSION, "-x", "80", "-y", "24"], { timeout: 5000 });
-  execFileSync(TMUX, ["new-session", "-d", "-s", TEST_HASH_SESSION, "-x", "80", "-y", "24"], { timeout: 5000 });
-
-  // Start the server on a random port
+  // Start the server on a random port for all tests (including server creation tests)
   terminal = createDirectTerminalServer(TMUX);
   terminal.server.listen(0);
   const addr = terminal.server.address();
   port = typeof addr === "object" && addr ? addr.port : 0;
+
+  if (!ptySupported) return;
+
+  // Create test tmux sessions
+  execFileSync(TMUX, ["new-session", "-d", "-s", TEST_SESSION, "-x", "80", "-y", "24"], { timeout: 5000 });
+  execFileSync(TMUX, ["new-session", "-d", "-s", TEST_HASH_SESSION, "-x", "80", "-y", "24"], { timeout: 5000 });
 });
 
 afterEach(() => {
-  if (!PTY_SUPPORTED || !terminal) return;
-
+  if (!ptySupported) return;
   // Clean up any active sessions from tests
   for (const [, session] of terminal.activeSessions) {
     session.pty.kill();
@@ -147,9 +155,8 @@ afterEach(() => {
 });
 
 afterAll(() => {
-  if (!PTY_SUPPORTED || !terminal) return;
-
   terminal.shutdown();
+  if (!ptySupported) return;
 
   // Kill test tmux sessions
   try { execFileSync(TMUX, ["kill-session", "-t", TEST_SESSION], { timeout: 5000 }); } catch { /* already dead */ }
@@ -759,7 +766,7 @@ describeIfPty("connection lifecycle", () => {
 // Server creation
 // =============================================================================
 
-describeIfPty("server creation", () => {
+describe("server creation", () => {
   it("createDirectTerminalServer returns all expected properties", () => {
     expect(terminal).toHaveProperty("server");
     expect(terminal).toHaveProperty("wss");
