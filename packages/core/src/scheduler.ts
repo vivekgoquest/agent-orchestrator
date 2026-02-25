@@ -9,6 +9,7 @@
  */
 
 export type TaskNodeState = "pending" | "ready" | "running" | "complete" | "blocked" | "paused";
+export type SchedulerPriorityPolicy = "strict" | "aging";
 
 export interface TaskNode {
   id: string;
@@ -44,6 +45,25 @@ export interface SchedulerConfig {
    * Fallback priority when node.priority is undefined.
    */
   defaultPriority?: number;
+  /**
+   * Scheduling policy for priority/fairness tradeoffs.
+   * - strict: priority first, then fairness hints
+   * - aging: adds bounded age-based priority boosts to reduce starvation
+   */
+  priorityPolicy?: SchedulerPriorityPolicy;
+  /**
+   * Milliseconds per aging step when priorityPolicy is "aging".
+   * Each full window grants +1 effective priority, capped by maxAgingBoost.
+   */
+  agingWindowMs?: number;
+  /**
+   * Maximum priority boost from aging policy.
+   */
+  maxAgingBoost?: number;
+  /**
+   * Clock provider for deterministic tests.
+   */
+  now?: () => number;
 }
 
 export interface SchedulerResult {
@@ -63,6 +83,15 @@ const SCHEDULABLE_STATES: ReadonlySet<TaskNodeState> = new Set(["pending", "read
 function assertValidConfig(config: SchedulerConfig): void {
   if (!Number.isInteger(config.concurrencyCap) || config.concurrencyCap < 0) {
     throw new Error("Scheduler config error: concurrencyCap must be an integer >= 0");
+  }
+  if (config.priorityPolicy && config.priorityPolicy !== "strict" && config.priorityPolicy !== "aging") {
+    throw new Error('Scheduler config error: priorityPolicy must be "strict" or "aging"');
+  }
+  if (config.agingWindowMs !== undefined && (!Number.isInteger(config.agingWindowMs) || config.agingWindowMs <= 0)) {
+    throw new Error("Scheduler config error: agingWindowMs must be an integer > 0 when provided");
+  }
+  if (config.maxAgingBoost !== undefined && (!Number.isInteger(config.maxAgingBoost) || config.maxAgingBoost < 0)) {
+    throw new Error("Scheduler config error: maxAgingBoost must be an integer >= 0 when provided");
   }
 }
 
@@ -95,6 +124,18 @@ function getPriority(task: TaskNode, config: SchedulerConfig): number {
   return task.priority ?? config.defaultPriority ?? 0;
 }
 
+function getAgingBoost(task: TaskNode, config: SchedulerConfig): number {
+  if ((config.priorityPolicy ?? "strict") !== "aging") return 0;
+  if (task.readySince === undefined) return 0;
+
+  const now = config.now ? config.now() : Date.now();
+  const windowMs = config.agingWindowMs ?? 60_000;
+  const maxBoost = config.maxAgingBoost ?? 5;
+  const elapsed = Math.max(now - task.readySince, 0);
+
+  return Math.min(Math.floor(elapsed / windowMs), maxBoost);
+}
+
 function getRunCount(task: TaskNode): number {
   return task.runCount ?? 0;
 }
@@ -104,7 +145,10 @@ function getReadySince(task: TaskNode): number {
 }
 
 function compareReadyTasks(a: TaskNode, b: TaskNode, config: SchedulerConfig): number {
-  const priorityDiff = getPriority(b, config) - getPriority(a, config);
+  const priorityDiff =
+    getPriority(b, config) +
+    getAgingBoost(b, config) -
+    (getPriority(a, config) + getAgingBoost(a, config));
   if (priorityDiff !== 0) return priorityDiff;
 
   const runCountDiff = getRunCount(a) - getRunCount(b);
@@ -117,7 +161,23 @@ function compareReadyTasks(a: TaskNode, b: TaskNode, config: SchedulerConfig): n
 }
 
 function transitionStateForResume(task: TaskNode, nodes: Record<string, TaskNode>): TaskNodeState {
-  return dependenciesComplete(task, nodes) ? "ready" : "pending";
+  const dependencies = task.dependencies ?? [];
+  let hasIncompleteDependency = false;
+
+  for (const dependencyId of dependencies) {
+    const dependency = nodes[dependencyId];
+    if (!dependency) {
+      throw new Error(`Task "${task.id}" depends on missing node "${dependencyId}"`);
+    }
+    if (dependency.state === "blocked" || dependency.state === "paused") {
+      return "blocked";
+    }
+    if (dependency.state !== "complete") {
+      hasIncompleteDependency = true;
+    }
+  }
+
+  return hasIncompleteDependency ? "pending" : "ready";
 }
 
 export function createScheduler(config: SchedulerConfig): SchedulerService {

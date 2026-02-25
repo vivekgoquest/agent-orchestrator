@@ -86,6 +86,24 @@ describe("createScheduler", () => {
     ]);
   });
 
+  it("supports configurable aging policy to reduce starvation", () => {
+    const scheduler = createScheduler({
+      concurrencyCap: 10,
+      priorityPolicy: "aging",
+      agingWindowMs: 60_000,
+      maxAgingBoost: 5,
+      now: () => 600_000,
+    });
+    const graph = graphFrom({
+      freshHigh: { id: "freshHigh", state: "ready", priority: 10, readySince: 590_000 },
+      staleMedium: { id: "staleMedium", state: "ready", priority: 7, readySince: 0 },
+      staleLow: { id: "staleLow", state: "ready", priority: 2, readySince: 0 },
+    });
+
+    const result = scheduler.getReadyQueue(graph);
+    expect(result.readyQueue.map((node) => node.id)).toEqual(["staleMedium", "freshHigh", "staleLow"]);
+  });
+
   it("supports pause/resume for blocked tasks", () => {
     const scheduler = createScheduler({ concurrencyCap: 10 });
     const initial = graphFrom({
@@ -100,6 +118,30 @@ describe("createScheduler", () => {
     const resumedGraph = scheduler.resumeTask(pausedGraph, "task");
     expect(resumedGraph.nodes["task"]?.state).toBe("ready");
     expect(scheduler.getReadyQueue(resumedGraph).readyQueue.map((node) => node.id)).toEqual(["task"]);
+  });
+
+  it("resumes paused tasks back to blocked when dependencies are blocked", () => {
+    const scheduler = createScheduler({ concurrencyCap: 10 });
+    const initial = graphFrom({
+      dep: { id: "dep", state: "blocked" },
+      task: { id: "task", state: "blocked", dependencies: ["dep"] },
+    });
+
+    const pausedGraph = scheduler.pauseTask(initial, "task");
+    expect(pausedGraph.nodes["task"]?.state).toBe("paused");
+
+    const resumedGraph = scheduler.resumeTask(pausedGraph, "task");
+    expect(resumedGraph.nodes["task"]?.state).toBe("blocked");
+    expect(scheduler.getReadyQueue(resumedGraph).readyQueue).toEqual([]);
+  });
+
+  it("validates aging config fields", () => {
+    expect(() => createScheduler({ concurrencyCap: 1, priorityPolicy: "aging", agingWindowMs: 0 })).toThrow(
+      "Scheduler config error: agingWindowMs must be an integer > 0 when provided",
+    );
+    expect(() => createScheduler({ concurrencyCap: 1, priorityPolicy: "aging", maxAgingBoost: -1 })).toThrow(
+      "Scheduler config error: maxAgingBoost must be an integer >= 0 when provided",
+    );
   });
 
   it("throws when dependency references a missing node", () => {
