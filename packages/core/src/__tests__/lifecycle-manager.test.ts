@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { execFile } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +20,10 @@ import type {
   ActivityState,
   PRInfo,
 } from "../types.js";
+
+vi.mock("node:child_process", () => ({
+  execFile: vi.fn(),
+}));
 
 let tmpDir: string;
 let configPath: string;
@@ -188,6 +193,12 @@ beforeEach(() => {
     reactions: {},
     readyThresholdMs: 300_000,
   };
+
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    const cb = args[args.length - 1] as ((err: Error | null, stdout: string, stderr: string) => void);
+    if (typeof cb === "function") cb(null, "[]", "");
+    return undefined as never;
+  }) as unknown as typeof execFile);
 
   // Calculate sessions directory
   sessionsDir = getSessionsDir(configPath, join(tmpDir, "my-app"));
@@ -899,6 +910,320 @@ describe("check (single session)", () => {
     await lm.check("app-1");
 
     expect(lm.getStates().get("app-1")).toBe("approved");
+  });
+
+  it("spawns reviewer sessions when reviewer gate is enabled", async () => {
+    config.defaults.reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.projects["my-app"].reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.policies = {
+      spawn: {
+        requireValidatedPlanTask: false,
+      },
+      reviewer: {
+        enabled: true,
+        reviewerCount: 2,
+        maxCycles: 3,
+        requireEvidence: true,
+        verdictChannel: "issue-comments",
+        notifyOnPass: true,
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    vi.mocked(mockSessionManager.spawn)
+      .mockResolvedValueOnce(makeSession({ id: "rev-1", status: "spawning" }))
+      .mockResolvedValueOnce(makeSession({ id: "rev-2", status: "spawning" }));
+
+    const session = makeSession({ status: "pr_open", pr: makePR() });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("reviewer_pending");
+    expect(mockSessionManager.spawn).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(mockSessionManager.spawn).mock.calls[0]?.[0]).toMatchObject({
+      projectId: "my-app",
+      agent: "mock-agent",
+      runtime: "mock",
+    });
+    expect(vi.mocked(mockSessionManager.spawn).mock.calls[0]?.[0]?.prompt).toContain(
+      "Reviewer ID: reviewer-alpha",
+    );
+    expect(vi.mocked(mockSessionManager.spawn).mock.calls[1]?.[0]?.prompt).toContain(
+      "Reviewer ID: reviewer-beta",
+    );
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta?.reviewerStatus).toBe("pending");
+    expect(meta?.reviewerSessionIds).toContain("rev-1");
+    expect(meta?.reviewerSessionIds).toContain("rev-2");
+  });
+
+  it("routes reviewer rejection feedback to worker and marks reviewer_failed", async () => {
+    config.defaults.reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.projects["my-app"].reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.policies = {
+      spawn: {
+        requireValidatedPlanTask: false,
+      },
+      reviewer: {
+        enabled: true,
+        reviewerCount: 2,
+        maxCycles: 3,
+        requireEvidence: true,
+        verdictChannel: "issue-comments",
+        notifyOnPass: true,
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      const cb = args[args.length - 1] as ((err: Error | null, stdout: string, stderr: string) => void);
+      const comments = [
+        {
+          body:
+            "AO_REVIEWER_ID: reviewer-alpha\n" +
+            "AO_REVIEWER_VERDICT: REJECT\n" +
+            "AO_REVIEWER_CYCLE: 1\n" +
+            "AO_REVIEWER_EVIDENCE: test=pnpm --filter @composio/ao-core test\n" +
+            "Null handling is missing in lifecycle branch.",
+          created_at: "2026-02-25T10:00:00Z",
+        },
+        {
+          body:
+            "AO_REVIEWER_ID: reviewer-beta\n" +
+            "AO_REVIEWER_VERDICT: APPROVE\n" +
+            "AO_REVIEWER_CYCLE: 1\n" +
+            "AO_REVIEWER_EVIDENCE: test=pnpm --filter @composio/ao-core test\n" +
+            "Looks good.",
+          created_at: "2026-02-25T10:01:00Z",
+        },
+      ];
+      if (typeof cb === "function") cb(null, JSON.stringify(comments), "");
+      return undefined as never;
+    }) as unknown as typeof execFile);
+
+    const session = makeSession({
+      status: "pr_open",
+      pr: makePR(),
+      metadata: {
+        reviewerStatus: "pending",
+        reviewerSessionIds: "rev-1,rev-2",
+        reviewerCycle: "1",
+      },
+    });
+    vi.mocked(mockSessionManager.get).mockImplementation(async (id: string) => {
+      if (id === "app-1") return session;
+      if (id === "rev-1") return makeSession({ id: "rev-1", status: "killed", metadata: { role: "reviewer" } });
+      if (id === "rev-2") return makeSession({ id: "rev-2", status: "killed", metadata: { role: "reviewer" } });
+      return null;
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+      reviewerStatus: "pending",
+      reviewerSessionIds: "rev-1,rev-2",
+      reviewerCycle: "1",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("reviewer_failed");
+    expect(mockSessionManager.send).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(mockSessionManager.send).mock.calls[0]?.[1]).toContain(
+      "Reviewer agents rejected this PR revision.",
+    );
+    expect(vi.mocked(mockSessionManager.send).mock.calls[0]?.[1]).toContain(
+      "Null handling is missing in lifecycle branch.",
+    );
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta?.reviewerStatus).toBe("failed");
+    expect(meta?.reviewerCycle).toBe("2");
+  });
+
+  it("treats reviewer approvals as a mergeability gate and proceeds when they pass", async () => {
+    config.defaults.reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.projects["my-app"].reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.policies = {
+      spawn: {
+        requireValidatedPlanTask: false,
+      },
+      reviewer: {
+        enabled: true,
+        reviewerCount: 2,
+        maxCycles: 3,
+        requireEvidence: true,
+        verdictChannel: "issue-comments",
+        notifyOnPass: true,
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      const cb = args[args.length - 1] as ((err: Error | null, stdout: string, stderr: string) => void);
+      const comments = [
+        {
+          body:
+            "AO_REVIEWER_ID: reviewer-alpha\n" +
+            "AO_REVIEWER_VERDICT: APPROVE\n" +
+            "AO_REVIEWER_CYCLE: 1\n" +
+            "AO_REVIEWER_EVIDENCE: test=pnpm --filter @composio/ao-core test\n" +
+            "Validated API edge cases.",
+          created_at: "2026-02-25T11:00:00Z",
+        },
+        {
+          body:
+            "AO_REVIEWER_ID: reviewer-beta\n" +
+            "AO_REVIEWER_VERDICT: APPROVE\n" +
+            "AO_REVIEWER_CYCLE: 1\n" +
+            "AO_REVIEWER_EVIDENCE: lint=pnpm lint\n" +
+            "Checked regression risk and contract behavior.",
+          created_at: "2026-02-25T11:01:00Z",
+        },
+      ];
+      if (typeof cb === "function") cb(null, JSON.stringify(comments), "");
+      return undefined as never;
+    }) as unknown as typeof execFile);
+
+    const session = makeSession({
+      status: "pr_open",
+      pr: makePR(),
+      metadata: {
+        reviewerStatus: "pending",
+        reviewerSessionIds: "rev-1,rev-2",
+        reviewerCycle: "1",
+      },
+    });
+    vi.mocked(mockSessionManager.get).mockImplementation(async (id: string) => {
+      if (id === "app-1") return session;
+      if (id === "rev-1") return makeSession({ id: "rev-1", status: "killed", metadata: { role: "reviewer" } });
+      if (id === "rev-2") return makeSession({ id: "rev-2", status: "killed", metadata: { role: "reviewer" } });
+      return null;
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+      reviewerStatus: "pending",
+      reviewerSessionIds: "rev-1,rev-2",
+      reviewerCycle: "1",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta?.reviewerStatus).toBe("passed");
+    expect(meta?.reviewerSessionIds).toBeUndefined();
   });
 
   it("throws for nonexistent session", async () => {

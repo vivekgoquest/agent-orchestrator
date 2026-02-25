@@ -12,6 +12,8 @@ Examples:
 
 Notes:
   - Set AO_REVIEWER_REPO=owner/repo to target a specific repository.
+  - Optionally set AO_REVIEWER_CYCLE=<n> to tag verdicts per review cycle.
+  - Optionally set AO_REVIEWER_EVIDENCE='<short evidence summary>' to include explicit evidence.
   - If feedback points to an existing file, file contents are appended.
 EOF
 }
@@ -53,11 +55,15 @@ else
 fi
 
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+CYCLE="${AO_REVIEWER_CYCLE:-}"
+EVIDENCE="${AO_REVIEWER_EVIDENCE:-}"
 
 COMMENT_BODY=$(cat <<EOF
 AO_REVIEWER_ID: ${REVIEWER_ID}
 AO_REVIEWER_VERDICT: ${VERDICT}
 AO_REVIEWER_TS: ${TIMESTAMP}
+$( [[ -n "$CYCLE" ]] && echo "AO_REVIEWER_CYCLE: ${CYCLE}" )
+$( [[ -n "$EVIDENCE" ]] && echo "AO_REVIEWER_EVIDENCE: ${EVIDENCE}" )
 
 ${FEEDBACK_CONTENT}
 EOF

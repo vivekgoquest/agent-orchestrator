@@ -9,6 +9,7 @@ Inputs:
 - PR number: <PR_NUMBER>
 - Reviewer ID: <REVIEWER_ID>
 - Repository: <OWNER/REPO>
+- Review cycle: <CYCLE_NUMBER>
 
 Goals:
 1) Validate correctness against the issue/acceptance criteria.
@@ -29,9 +30,13 @@ Process:
    - APPROVE only if there are no blockers.
    - REJECT if any blocker exists; include specific required fixes.
 5. Post verdict comment (required format)
-   - scripts/reviewer-agent-verdict <PR_NUMBER> APPROVE <REVIEWER_ID> "<summary>"
+   - AO_REVIEWER_REPO=<OWNER/REPO> AO_REVIEWER_CYCLE=<CYCLE_NUMBER> AO_REVIEWER_EVIDENCE="<tests + checks>" scripts/reviewer-agent-verdict <PR_NUMBER> APPROVE <REVIEWER_ID> "<summary>"
    - or
-   - scripts/reviewer-agent-verdict <PR_NUMBER> REJECT <REVIEWER_ID> "<blockers and required fixes>"
+   - AO_REVIEWER_REPO=<OWNER/REPO> AO_REVIEWER_CYCLE=<CYCLE_NUMBER> AO_REVIEWER_EVIDENCE="<tests + checks>" scripts/reviewer-agent-verdict <PR_NUMBER> REJECT <REVIEWER_ID> "<blockers and required fixes>"
+
+6. (Optional but recommended) update AO metadata if helper is available:
+   - update_ao_metadata reviewerVerdict approve|reject
+   - update_ao_metadata reviewerFeedback "<same summary>"
 
 Output requirements:
 - Include concise reasoning.
@@ -45,4 +50,6 @@ Output requirements:
 export AO_REVIEWER_REPO=vivekgoquest/agent-orchestrator
 scripts/reviewer-agent-verdict 42 APPROVE reviewer-alpha "No blockers. CI and targeted tests are green."
 scripts/reviewer-agent-verdict 42 REJECT reviewer-beta "BLOCKER: scheduler deadlock path not covered; add test for cyclic dependency rejection."
+AO_REVIEWER_CYCLE=1 AO_REVIEWER_EVIDENCE="pnpm --filter @composio/ao-core test" \
+  scripts/reviewer-agent-verdict 42 APPROVE reviewer-alpha "No blockers. CI and targeted tests are green."
 ```

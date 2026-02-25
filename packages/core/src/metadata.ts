@@ -249,6 +249,17 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     verifierStatus: raw["verifierStatus"],
     verifierVerdict: raw["verifierVerdict"],
     verifierFeedback: raw["verifierFeedback"],
+    reviewerFor: raw["reviewerFor"],
+    reviewerSessionIds: raw["reviewerSessionIds"],
+    reviewerStatus: raw["reviewerStatus"],
+    reviewerVerdict: raw["reviewerVerdict"],
+    reviewerFeedback: raw["reviewerFeedback"],
+    reviewerId: raw["reviewerId"],
+    reviewerCycle: raw["reviewerCycle"],
+    reviewerEvidenceToken: raw["reviewerEvidenceToken"],
+    reviewerFailedEvidenceToken: raw["reviewerFailedEvidenceToken"],
+    reviewerFailureSentFor: raw["reviewerFailureSentFor"],
+    reviewerLastSummary: raw["reviewerLastSummary"],
   };
 }
 
@@ -319,6 +330,20 @@ export function writeMetadata(
   if (metadata.verifierStatus) data["verifierStatus"] = metadata.verifierStatus;
   if (metadata.verifierVerdict) data["verifierVerdict"] = metadata.verifierVerdict;
   if (metadata.verifierFeedback) data["verifierFeedback"] = metadata.verifierFeedback;
+  if (metadata.reviewerFor) data["reviewerFor"] = metadata.reviewerFor;
+  if (metadata.reviewerSessionIds) data["reviewerSessionIds"] = metadata.reviewerSessionIds;
+  if (metadata.reviewerStatus) data["reviewerStatus"] = metadata.reviewerStatus;
+  if (metadata.reviewerVerdict) data["reviewerVerdict"] = metadata.reviewerVerdict;
+  if (metadata.reviewerFeedback) data["reviewerFeedback"] = metadata.reviewerFeedback;
+  if (metadata.reviewerId) data["reviewerId"] = metadata.reviewerId;
+  if (metadata.reviewerCycle) data["reviewerCycle"] = metadata.reviewerCycle;
+  if (metadata.reviewerEvidenceToken)
+    data["reviewerEvidenceToken"] = metadata.reviewerEvidenceToken;
+  if (metadata.reviewerFailedEvidenceToken)
+    data["reviewerFailedEvidenceToken"] = metadata.reviewerFailedEvidenceToken;
+  if (metadata.reviewerFailureSentFor)
+    data["reviewerFailureSentFor"] = metadata.reviewerFailureSentFor;
+  if (metadata.reviewerLastSummary) data["reviewerLastSummary"] = metadata.reviewerLastSummary;
 
   writeFileSync(path, serializeMetadata(data), "utf-8");
 }

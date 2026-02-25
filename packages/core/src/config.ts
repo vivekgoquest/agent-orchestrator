@@ -88,6 +88,16 @@ const VerifierRoleConfigSchema = z
     message: "verifier must define at least one of 'runtime' or 'agent'",
   });
 
+const ReviewerRoleConfigSchema = z
+  .object({
+    runtime: z.string().min(1).optional(),
+    agent: z.string().min(1).optional(),
+  })
+  .strict()
+  .refine((value) => value.runtime !== undefined || value.agent !== undefined, {
+    message: "reviewer must define at least one of 'runtime' or 'agent'",
+  });
+
 const ProjectConfigSchema = z.object({
   name: z.string().optional(),
   repo: z.string(),
@@ -106,6 +116,7 @@ const ProjectConfigSchema = z.object({
   postCreate: z.array(z.string()).optional(),
   agentConfig: AgentSpecificConfigSchema.optional(),
   verifier: VerifierRoleConfigSchema.optional(),
+  reviewer: ReviewerRoleConfigSchema.optional(),
   reactions: z.record(ReactionConfigSchema.partial()).optional(),
   agentRules: z.string().optional(),
   agentRulesFile: z.string().optional(),
@@ -118,6 +129,7 @@ const DefaultPluginsSchema = z.object({
   workspace: z.string().default("worktree"),
   notifiers: z.array(z.string()).default(["composio", "desktop"]),
   verifier: VerifierRoleConfigSchema.optional(),
+  reviewer: ReviewerRoleConfigSchema.optional(),
 });
 
 const SpawnPolicySchema = z.object({
@@ -130,9 +142,19 @@ const MergePolicySchema = z.object({
   minReviewerAgentApprovals: z.number().int().min(1).max(10).default(2),
 });
 
+const ReviewerPolicySchema = z.object({
+  enabled: z.boolean().default(true),
+  reviewerCount: z.number().int().min(1).max(3).default(2),
+  maxCycles: z.number().int().min(1).max(10).default(3),
+  requireEvidence: z.boolean().default(true),
+  verdictChannel: z.enum(["issue-comments"]).default("issue-comments"),
+  notifyOnPass: z.boolean().default(true),
+});
+
 const PolicyConfigSchema = z.object({
   spawn: SpawnPolicySchema.default({}),
   merge: MergePolicySchema.default({}),
+  reviewer: ReviewerPolicySchema.default({}),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -182,6 +204,14 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
   };
   config.defaults.verifier = defaultVerifier;
 
+  const defaultReviewer = config.defaults.reviewer
+    ? {
+        runtime: config.defaults.reviewer.runtime ?? config.defaults.runtime,
+        agent: config.defaults.reviewer.agent ?? config.defaults.agent,
+      }
+    : undefined;
+  config.defaults.reviewer = defaultReviewer;
+
   for (const [id, project] of Object.entries(config.projects)) {
     // Derive name from project ID if not set
     if (!project.name) {
@@ -209,6 +239,13 @@ function applyProjectDefaults(config: OrchestratorConfig): OrchestratorConfig {
       runtime: project.verifier?.runtime ?? defaultVerifier.runtime,
       agent: project.verifier?.agent ?? defaultVerifier.agent,
     };
+
+    if (defaultReviewer || project.reviewer) {
+      project.reviewer = {
+        runtime: project.reviewer?.runtime ?? defaultReviewer?.runtime,
+        agent: project.reviewer?.agent ?? defaultReviewer?.agent,
+      };
+    }
   }
 
   return config;

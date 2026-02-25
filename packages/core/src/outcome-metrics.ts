@@ -21,7 +21,13 @@ const TERMINAL_STATUSES = new Set<SessionStatus>([
   "errored",
 ]);
 
-const FAILURE_STATUSES = new Set<SessionStatus>(["ci_failed", "changes_requested", "stuck", "errored"]);
+const FAILURE_STATUSES = new Set<SessionStatus>([
+  "ci_failed",
+  "changes_requested",
+  "reviewer_failed",
+  "stuck",
+  "errored",
+]);
 
 const TRANSITIONS_RELATIVE_PATH = join("metrics", "outcome-transitions.jsonl");
 

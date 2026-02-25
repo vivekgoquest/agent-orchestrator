@@ -77,6 +77,9 @@ defaults:
   agent: claude-code
   workspace: worktree
   notifiers: [desktop]
+  reviewer:
+    runtime: tmux
+    agent: codex
 
 projects:
   my-app:
@@ -99,6 +102,13 @@ reactions:
     action: notify
 
 policies:
+  reviewer:
+    enabled: true
+    reviewerCount: 2
+    maxCycles: 3
+    requireEvidence: true
+    verdictChannel: issue-comments
+    notifyOnPass: true
   merge:
     allowAutoMerge: false
     requireReviewerAgentGate: true
@@ -112,6 +122,8 @@ Reviewer-agent gate comments should include:
 ```text
 AO_REVIEWER_ID: reviewer-1
 AO_REVIEWER_VERDICT: APPROVE
+AO_REVIEWER_CYCLE: 1
+AO_REVIEWER_EVIDENCE: targeted tests + changed-file analysis
 ```
 
 ## Reviewer Agents
@@ -124,6 +136,8 @@ Post machine-readable verdicts with:
 export AO_REVIEWER_REPO=vivekgoquest/agent-orchestrator
 scripts/reviewer-agent-verdict <PR_NUMBER> APPROVE reviewer-alpha "No blockers."
 scripts/reviewer-agent-verdict <PR_NUMBER> REJECT reviewer-beta "BLOCKER: missing null guard in scheduler path."
+AO_REVIEWER_CYCLE=1 AO_REVIEWER_EVIDENCE="pnpm --filter @composio/ao-core test" \
+  scripts/reviewer-agent-verdict <PR_NUMBER> APPROVE reviewer-alpha "Validated lifecycle edge-cases."
 ```
 
 See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the full reference.

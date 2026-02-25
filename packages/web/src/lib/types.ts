@@ -179,7 +179,11 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   // ── Merge: PR is ready — one click to clear ───────────────────────
   // Check this early: if the PR is mergeable, that's the most valuable
   // action for the human regardless of agent activity.
-  if (session.status === "mergeable" || session.status === "approved") {
+  if (
+    session.status === "mergeable" ||
+    session.status === "approved" ||
+    session.status === "reviewer_passed"
+  ) {
     return "merge";
   }
   if (session.pr?.mergeability.mergeable) {
@@ -206,7 +210,11 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   }
 
   // ── Review: problems that need investigation ──────────────────────
-  if (session.status === "ci_failed" || session.status === "changes_requested") {
+  if (
+    session.status === "ci_failed" ||
+    session.status === "changes_requested" ||
+    session.status === "reviewer_failed"
+  ) {
     return "review";
   }
   if (session.pr && !isPRRateLimited(session.pr)) {
@@ -217,7 +225,7 @@ export function getAttentionLevel(session: DashboardSession): AttentionLevel {
   }
 
   // ── Pending: waiting on external (reviewer, CI) ───────────────────
-  if (session.status === "review_pending") {
+  if (session.status === "review_pending" || session.status === "reviewer_pending") {
     return "pending";
   }
   if (session.pr && !isPRRateLimited(session.pr)) {

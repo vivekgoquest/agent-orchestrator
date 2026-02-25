@@ -25,6 +25,10 @@ defaults:
   # verifier:
   #   runtime: process
   #   agent: codex
+  # Optional reviewer role defaults for autonomous PR reviewer sessions
+  # reviewer:
+  #   runtime: tmux
+  #   agent: codex
 
 # Policy toggles
 # policies:
@@ -37,10 +41,19 @@ defaults:
 #     # Require reviewer-agent verdict gate workflow on PRs
 #     requireReviewerAgentGate: true
 #     minReviewerAgentApprovals: 2
+#   reviewer:
+#     enabled: true
+#     reviewerCount: 2
+#     maxCycles: 3
+#     requireEvidence: true
+#     verdictChannel: issue-comments
+#     notifyOnPass: true
 #
 # Reviewer agents should post comments containing:
 #   AO_REVIEWER_ID: reviewer-alpha
 #   AO_REVIEWER_VERDICT: APPROVE|REJECT
+#   AO_REVIEWER_CYCLE: 1
+#   AO_REVIEWER_EVIDENCE: targeted tests + changed-file analysis
 
 # Projects — at minimum, specify repo and path
 projects:
@@ -71,6 +84,11 @@ projects:
     # Optional verifier role overrides for this project
     # verifier:
     #   agent: claude-code
+    #   runtime: tmux
+
+    # Optional reviewer role overrides for this project
+    # reviewer:
+    #   agent: codex
     #   runtime: tmux
 
     # Inline rules included in every agent prompt for this project
