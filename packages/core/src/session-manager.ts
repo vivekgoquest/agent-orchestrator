@@ -1015,8 +1015,11 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw new Error(`Session ${sessionId} not found`);
     }
 
-    // If restored from archive, recreate the active metadata file
+    // If restored from archive, recreate the active metadata file by copying
+    // all archived key/value pairs verbatim. This preserves plan lifecycle
+    // metadata (planId/planVersion/planStatus/planPath) and any future fields.
     if (fromArchive) {
+      const parsedPlanVersion = raw["planVersion"] ? Number(raw["planVersion"]) : undefined;
       writeMetadata(sessionsDir, sessionId, {
         worktree: raw["worktree"] ?? "",
         branch: raw["branch"] ?? "",
@@ -1028,10 +1031,17 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         pr: raw["pr"],
         summary: raw["summary"],
         project: raw["project"],
+        agent: raw["agent"],
         createdAt: raw["createdAt"],
         runtimeHandle: raw["runtimeHandle"],
         planTaskId: raw["planTaskId"],
         planTaskValidated: raw["planTaskValidated"],
+        planVersion:
+          typeof parsedPlanVersion === "number" && Number.isFinite(parsedPlanVersion)
+            ? parsedPlanVersion
+            : undefined,
+        planStatus: raw["planStatus"] as "draft" | "validated" | "superseded" | undefined,
+        planPath: raw["planPath"],
       });
     }
 

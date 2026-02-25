@@ -323,6 +323,37 @@ describe("plan blob persistence", () => {
     expect(meta!.planPath).toBeUndefined();
     expect(readPlanBlob(dataDir, "legacy-1")).toBeNull();
   });
+
+  it("reads plan blob using canonical fallback path when planPath metadata is missing", () => {
+    writeMetadata(dataDir, "plan-4", {
+      worktree: "/tmp/w",
+      branch: "main",
+      status: "working",
+    });
+
+    const written = writePlanBlob(dataDir, "plan-4", {
+      planId: "workplan",
+      planVersion: 5,
+      planStatus: "validated",
+      blob: { goal: "ship", tasks: [{ id: "task-1" }] },
+    });
+
+    // Simulate legacy/migrated metadata that tracked plan IDs but not planPath.
+    updateMetadata(dataDir, "plan-4", { planPath: "" });
+
+    const meta = readMetadata(dataDir, "plan-4");
+    expect(meta).not.toBeNull();
+    expect(meta!.planId).toBe("workplan");
+    expect(meta!.planVersion).toBe(5);
+    expect(meta!.planPath).toBeUndefined();
+
+    const readBack = readPlanBlob<{ goal: string; tasks: Array<{ id: string }> }>(dataDir, "plan-4");
+    expect(readBack).not.toBeNull();
+    expect(readBack!.planPath).toBe(written.planPath);
+    expect(readBack!.planStatus).toBe("validated");
+    expect(readBack!.blob.goal).toBe("ship");
+    expect(readBack!.blob.tasks[0].id).toBe("task-1");
+  });
 });
 
 describe("deleteMetadata", () => {

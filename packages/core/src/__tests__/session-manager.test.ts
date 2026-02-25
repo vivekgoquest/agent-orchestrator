@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createSessionManager } from "../session-manager.js";
-import { writeMetadata, readMetadata, readMetadataRaw, deleteMetadata } from "../metadata.js";
+import {
+  writeMetadata,
+  readMetadata,
+  readMetadataRaw,
+  readPlanBlob,
+  writePlanBlob,
+  deleteMetadata,
+} from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
 import {
   SessionNotRestorableError,
@@ -1421,6 +1428,53 @@ describe("restore", () => {
     expect(meta).not.toBeNull();
     expect(meta!["issue"]).toBe("TEST-1");
     expect(meta!["pr"]).toBe("https://github.com/org/my-app/pull/10");
+  });
+
+  it("preserves plan lifecycle metadata and blob pointer when restoring from archive", async () => {
+    const wsPath = join(tmpDir, "ws-app-1-plan");
+    mkdirSync(wsPath, { recursive: true });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: wsPath,
+      branch: "feat/TEST-PLAN",
+      status: "killed",
+      project: "my-app",
+      agent: "mock-agent",
+      runtimeHandle: JSON.stringify(makeHandle("rt-old")),
+    });
+
+    writePlanBlob(sessionsDir, "app-1", {
+      planId: "workplan",
+      planVersion: 3,
+      planStatus: "validated",
+      blob: {
+        tasks: [{ id: "task-1", issueId: "TEST-PLAN" }],
+      },
+    });
+
+    deleteMetadata(sessionsDir, "app-1");
+    expect(readMetadataRaw(sessionsDir, "app-1")).toBeNull();
+
+    const sm = createSessionManager({ config, registry: mockRegistry });
+    await sm.restore("app-1");
+
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta).not.toBeNull();
+    expect(meta!["planId"]).toBe("workplan");
+    expect(meta!["planVersion"]).toBe("3");
+    expect(meta!["planStatus"]).toBe("validated");
+    expect(meta!["planPath"]).toContain("workplan.v3.json");
+    expect(meta!["agent"]).toBe("mock-agent");
+
+    const plan = readPlanBlob<{ tasks: Array<{ id: string; issueId: string }> }>(
+      sessionsDir,
+      "app-1",
+    );
+    expect(plan).not.toBeNull();
+    expect(plan!.planId).toBe("workplan");
+    expect(plan!.planVersion).toBe(3);
+    expect(plan!.planStatus).toBe("validated");
+    expect(plan!.blob.tasks[0]?.id).toBe("task-1");
   });
 
   it("restores from archive with multiple archived versions (picks latest)", async () => {
