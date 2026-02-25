@@ -48,6 +48,7 @@ describe("writeMetadata + readMetadata", () => {
       branch: "main",
       status: "pr_open",
       issue: "https://linear.app/team/issue/INT-100",
+      taskId: "INT-100",
       pr: "https://github.com/org/repo/pull/42",
       summary: "Implementing feature X",
       project: "my-app",
@@ -67,6 +68,7 @@ describe("writeMetadata + readMetadata", () => {
     const meta = readMetadata(dataDir, "app-2");
     expect(meta).not.toBeNull();
     expect(meta!.issue).toBe("https://linear.app/team/issue/INT-100");
+    expect(meta!.taskId).toBe("INT-100");
     expect(meta!.pr).toBe("https://github.com/org/repo/pull/42");
     expect(meta!.summary).toBe("Implementing feature X");
     expect(meta!.project).toBe("my-app");

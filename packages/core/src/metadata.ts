@@ -220,6 +220,7 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     status: raw["status"] ?? "unknown",
     tmuxName: raw["tmuxName"],
     issue: raw["issue"],
+    taskId: raw["taskId"],
     pr: raw["pr"],
     summary: raw["summary"],
     project: raw["project"],
@@ -282,6 +283,8 @@ export function writeMetadata(
 
   if (metadata.tmuxName) data["tmuxName"] = metadata.tmuxName;
   if (metadata.issue) data["issue"] = metadata.issue;
+  if (metadata.taskId) data["taskId"] = metadata.taskId;
+  if (metadata.planId) data["planId"] = metadata.planId;
   if (metadata.pr) data["pr"] = metadata.pr;
   if (metadata.summary) data["summary"] = metadata.summary;
   if (metadata.project) data["project"] = metadata.project;

@@ -14,9 +14,11 @@ import {
   loadConfig,
   createPluginRegistry,
   createSessionManager,
+  createOutcomeMetricsStore,
   type OrchestratorConfig,
   type PluginRegistry,
   type SessionManager,
+  type OutcomeMetricsStore,
   type SCM,
   type ProjectConfig,
 } from "@composio/ao-core";
@@ -33,6 +35,7 @@ export interface Services {
   config: OrchestratorConfig;
   registry: PluginRegistry;
   sessionManager: SessionManager;
+  outcomeMetrics: OutcomeMetricsStore;
 }
 
 // Cache in globalThis for Next.js HMR stability
@@ -70,8 +73,9 @@ async function initServices(): Promise<Services> {
   registry.register(pluginTrackerLinear);
 
   const sessionManager = createSessionManager({ config, registry });
+  const outcomeMetrics = createOutcomeMetricsStore(config);
 
-  const services = { config, registry, sessionManager };
+  const services = { config, registry, sessionManager, outcomeMetrics };
   globalForServices._aoServices = services;
   return services;
 }
@@ -81,4 +85,3 @@ export function getSCM(registry: PluginRegistry, project: ProjectConfig | undefi
   if (!project?.scm) return null;
   return registry.get<SCM>("scm", project.scm.plugin);
 }
-

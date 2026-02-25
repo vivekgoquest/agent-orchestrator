@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { createLifecycleManager } from "../lifecycle-manager.js";
 import { writeMetadata, readMetadataRaw } from "../metadata.js";
 import { getSessionsDir, getProjectBaseDir } from "../paths.js";
+import type { OutcomeMetricsStore } from "../outcome-metrics.js";
 import type {
   OrchestratorConfig,
   PluginRegistry,
@@ -26,6 +27,7 @@ let mockSessionManager: SessionManager;
 let mockRuntime: Runtime;
 let mockAgent: Agent;
 let mockRegistry: PluginRegistry;
+let mockOutcomeMetrics: OutcomeMetricsStore;
 let config: OrchestratorConfig;
 
 function makeSession(overrides: Partial<Session> = {}): Session {
@@ -148,6 +150,13 @@ beforeEach(() => {
     kill: vi.fn().mockResolvedValue(undefined),
     cleanup: vi.fn(),
     send: vi.fn().mockResolvedValue(undefined),
+  };
+
+  mockOutcomeMetrics = {
+    recordTransition: vi.fn(),
+    listTransitions: vi.fn().mockReturnValue([]),
+    getSummary: vi.fn(),
+    generateRetrospective: vi.fn(),
   };
 
   config = {
@@ -927,6 +936,45 @@ describe("check (single session)", () => {
     // Second check — status remains working, no transition
     await lm.check("app-1");
     expect(lm.getStates().get("app-1")).toBe("working");
+  });
+
+  it("records transition in outcome metrics store when status changes", async () => {
+    const session = makeSession({
+      status: "spawning",
+      issueId: "ISSUE-22",
+      metadata: { planId: "plan-1" },
+    });
+    vi.mocked(mockSessionManager.get).mockResolvedValue(session);
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "spawning",
+      project: "my-app",
+      planId: "plan-1",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: mockRegistry,
+      sessionManager: mockSessionManager,
+      outcomeMetrics: mockOutcomeMetrics,
+    });
+
+    await lm.check("app-1");
+
+    expect(mockOutcomeMetrics.recordTransition).toHaveBeenCalledTimes(1);
+    expect(mockOutcomeMetrics.recordTransition).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "app-1",
+        projectId: "my-app",
+        taskId: "ISSUE-22",
+        planId: "plan-1",
+        issueId: "ISSUE-22",
+        fromStatus: "spawning",
+        toStatus: "working",
+      }),
+    );
   });
 });
 

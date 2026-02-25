@@ -1164,6 +1164,8 @@ export interface SessionMetadata {
   status: string;
   tmuxName?: string; // Globally unique tmux session name (includes hash)
   issue?: string;
+  taskId?: string;
+  planId?: string;
   pr?: string;
   summary?: string;
   project?: string;

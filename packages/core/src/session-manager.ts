@@ -568,6 +568,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         status: "spawning",
         tmuxName, // Store tmux name for mapping
         issue: spawnConfig.issueId,
+        taskId: spawnConfig.issueId ?? sessionId,
+        planId: "default",
         project: spawnConfig.projectId,
         agent: plugins.agent.name, // Persist agent name for lifecycle manager
         createdAt: new Date().toISOString(),
@@ -708,6 +710,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         branch: project.defaultBranch,
         status: "working",
         tmuxName,
+        taskId: sessionId,
+        planId: "orchestrator",
         project: orchestratorConfig.projectId,
         createdAt: new Date().toISOString(),
         runtimeHandle: JSON.stringify(handle),
@@ -1020,6 +1024,8 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         status: raw["status"] ?? "killed",
         tmuxName: raw["tmuxName"],
         issue: raw["issue"],
+        taskId: raw["taskId"],
+        planId: raw["planId"],
         pr: raw["pr"],
         summary: raw["summary"],
         project: raw["project"],

@@ -43,6 +43,7 @@ import { readMetadataRaw, updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { buildReactionMessage } from "./reaction-message.js";
 import { parseWorkerEvidence, type WorkerEvidenceParseResult } from "./evidence.js";
+import type { OutcomeMetricsStore } from "./outcome-metrics.js";
 
 const VERIFIER_ROLE = "verifier";
 const VERIFIER_STATUS = {
@@ -256,6 +257,7 @@ export interface LifecycleManagerDeps {
   config: OrchestratorConfig;
   registry: PluginRegistry;
   sessionManager: SessionManager;
+  outcomeMetrics?: OutcomeMetricsStore;
 }
 
 const ESCALATION_STATE_METADATA_KEY = "escalationState";
@@ -447,7 +449,7 @@ function applyEscalationTransition(
 
 /** Create a LifecycleManager instance. */
 export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleManager {
-  const { config, registry, sessionManager } = deps;
+  const { config, registry, sessionManager, outcomeMetrics } = deps;
 
   const states = new Map<SessionId, SessionStatus>();
   const reactionTrackers = new Map<string, ReactionTracker>(); // "sessionId:reactionKey"
@@ -1056,6 +1058,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       if (project) {
         const sessionsDir = getSessionsDir(config.configPath, project.path);
         updateMetadata(sessionsDir, session.id, { status: newStatus });
+      }
+
+      // Persist transition for outcome metrics + retrospective reporting.
+      try {
+        outcomeMetrics?.recordTransition({
+          sessionId: session.id,
+          projectId: session.projectId,
+          taskId: session.metadata["taskId"] ?? session.issueId ?? session.id,
+          planId: session.metadata["planId"] ?? session.metadata["plan"] ?? "default",
+          issueId: session.issueId ?? undefined,
+          fromStatus: oldStatus,
+          toStatus: newStatus,
+        });
+      } catch {
+        // Metrics persistence is best-effort and must not block lifecycle updates.
       }
 
       // Reset allCompleteEmitted when any session becomes active again

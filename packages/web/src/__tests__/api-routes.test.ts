@@ -7,6 +7,7 @@ import {
   type OrchestratorConfig,
   type PluginRegistry,
   type SCM,
+  type OutcomeMetricsStore,
 } from "@composio/ao-core";
 
 // ── Mock Data ─────────────────────────────────────────────────────────
@@ -125,6 +126,70 @@ const mockRegistry: PluginRegistry = {
   loadFromConfig: vi.fn(async () => {}),
 };
 
+const mockOutcomeMetrics: OutcomeMetricsStore = {
+  recordTransition: vi.fn(),
+  listTransitions: vi.fn(() => []),
+  getSummary: vi.fn(() => ({
+    generatedAt: "2026-02-25T00:00:00.000Z",
+    filters: {},
+    transitionCount: 4,
+    tasks: [
+      {
+        projectId: "my-app",
+        planId: "default",
+        taskId: "backend-7",
+        issueId: null,
+        sessionIds: ["backend-7"],
+        transitions: 2,
+        retries: 0,
+        reopenCount: 0,
+        failureSignals: 0,
+        startedAt: "2026-02-25T00:00:00.000Z",
+        completedAt: "2026-02-25T00:10:00.000Z",
+        cycleTimeMs: 600000,
+        firstPassSuccess: true,
+        terminalStatus: "merged",
+      },
+    ],
+    plans: [
+      {
+        projectId: "my-app",
+        planId: "default",
+        taskCount: 1,
+        completedTasks: 1,
+        firstPassRate: 1,
+        averageRetries: 0,
+        averageCycleTimeMs: 600000,
+        reopenRate: 0,
+      },
+    ],
+    overall: {
+      taskCount: 1,
+      completedTasks: 1,
+      firstPassRate: 1,
+      averageRetries: 0,
+      averageCycleTimeMs: 600000,
+      reopenRate: 0,
+    },
+  })),
+  generateRetrospective: vi.fn(() => ({
+    generatedAt: "2026-02-25T00:00:00.000Z",
+    filters: {},
+    overview: {
+      taskCount: 1,
+      completedTasks: 1,
+      firstPassRate: 1,
+      averageRetries: 0,
+      averageCycleTimeMs: 600000,
+      reopenRate: 0,
+    },
+    highlights: ["Completed tasks: 1/1"],
+    failurePatterns: [],
+    recommendations: [],
+    topSlowTasks: [],
+  })),
+};
+
 const mockConfig: OrchestratorConfig = {
   configPath: "/tmp/ao-test/agent-orchestrator.yaml",
   port: 3000,
@@ -150,6 +215,7 @@ vi.mock("@/lib/services", () => ({
     config: mockConfig,
     registry: mockRegistry,
     sessionManager: mockSessionManager,
+    outcomeMetrics: mockOutcomeMetrics,
   })),
   getSCM: vi.fn(() => mockSCM),
 }));
@@ -163,6 +229,8 @@ import { POST as killPOST } from "@/app/api/sessions/[id]/kill/route";
 import { POST as restorePOST } from "@/app/api/sessions/[id]/restore/route";
 import { POST as mergePOST } from "@/app/api/prs/[id]/merge/route";
 import { GET as eventsGET } from "@/app/api/events/route";
+import { GET as metricsSummaryGET } from "@/app/api/metrics/summary/route";
+import { GET as metricsRetrospectiveGET } from "@/app/api/metrics/retrospective/route";
 
 function makeRequest(url: string, init?: RequestInit): NextRequest {
   return new NextRequest(
@@ -178,6 +246,8 @@ beforeEach(() => {
   (mockSessionManager.get as ReturnType<typeof vi.fn>).mockImplementation(
     async (id: string) => testSessions.find((s) => s.id === id) ?? null,
   );
+  (mockOutcomeMetrics.getSummary as ReturnType<typeof vi.fn>).mockClear();
+  (mockOutcomeMetrics.generateRetrospective as ReturnType<typeof vi.fn>).mockClear();
 });
 
 describe("API Routes", () => {
@@ -456,6 +526,33 @@ describe("API Routes", () => {
       expect(event.sessions.length).toBeGreaterThan(0);
       expect(event.sessions[0]).toHaveProperty("id");
       expect(event.sessions[0]).toHaveProperty("attentionLevel");
+    });
+  });
+
+  // ── GET /api/metrics/* ─────────────────────────────────────────────
+
+  describe("GET /api/metrics/summary", () => {
+    it("returns aggregated task and plan rollups", async () => {
+      const res = await metricsSummaryGET(makeRequest("/api/metrics/summary"));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.transitionCount).toBe(4);
+      expect(Array.isArray(data.tasks)).toBe(true);
+      expect(Array.isArray(data.plans)).toBe(true);
+      expect(data.overall).toBeDefined();
+      expect(mockOutcomeMetrics.getSummary).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("GET /api/metrics/retrospective", () => {
+    it("returns retrospective highlights and recommendations", async () => {
+      const res = await metricsRetrospectiveGET(makeRequest("/api/metrics/retrospective"));
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(Array.isArray(data.highlights)).toBe(true);
+      expect(Array.isArray(data.failurePatterns)).toBe(true);
+      expect(Array.isArray(data.recommendations)).toBe(true);
+      expect(mockOutcomeMetrics.generateRetrospective).toHaveBeenCalledTimes(1);
     });
   });
 });
