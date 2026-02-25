@@ -557,3 +557,126 @@ describe("Config Verifier Role Settings", () => {
     expect(() => validateConfig(config)).toThrow();
   });
 });
+
+describe("Config Verifier Role Settings", () => {
+  it("defaults verifier role to main runtime and agent", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.defaults.verifier).toEqual({
+      runtime: "tmux",
+      agent: "claude-code",
+    });
+    expect(validated.projects.proj1.verifier).toEqual({
+      runtime: "tmux",
+      agent: "claude-code",
+    });
+  });
+
+  it("supports dedicated verifier defaults", () => {
+    const config = {
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+        verifier: {
+          runtime: "process",
+          agent: "codex",
+        },
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.defaults.verifier).toEqual({
+      runtime: "process",
+      agent: "codex",
+    });
+    expect(validated.projects.proj1.verifier).toEqual({
+      runtime: "process",
+      agent: "codex",
+    });
+  });
+
+  it("supports per-project verifier overrides", () => {
+    const config = {
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+        verifier: {
+          runtime: "process",
+          agent: "codex",
+        },
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          verifier: {
+            agent: "claude-code",
+          },
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.projects.proj1.verifier).toEqual({
+      runtime: "process",
+      agent: "claude-code",
+    });
+  });
+
+  it("rejects empty defaults verifier config", () => {
+    const config = {
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+        verifier: {},
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow();
+  });
+
+  it("rejects empty project verifier config", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          verifier: {},
+        },
+      },
+    };
+
+    expect(() => validateConfig(config)).toThrow();
+  });
+});
