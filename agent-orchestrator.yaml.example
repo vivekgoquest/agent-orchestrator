@@ -31,6 +31,16 @@ defaults:
 #   spawn:
 #     # When true, worker spawn requires planTask (planId/taskId + validated=true)
 #     requireValidatedPlanTask: false
+#   merge:
+#     # Keep false to require human/reviewer-agent decision before merge
+#     allowAutoMerge: false
+#     # Require reviewer-agent verdict gate workflow on PRs
+#     requireReviewerAgentGate: true
+#     minReviewerAgentApprovals: 2
+#
+# Reviewer agents should post comments containing:
+#   AO_REVIEWER_ID: reviewer-alpha
+#   AO_REVIEWER_VERDICT: APPROVE|REJECT
 
 # Projects — at minimum, specify repo and path
 projects:
@@ -78,7 +88,7 @@ projects:
     # Per-project reaction overrides
     # reactions:
     #   approved-and-green:
-    #     auto: true         # enable auto-merge for this project
+    #     auto: false        # auto-merge is blocked unless policies.merge.allowAutoMerge=true
 
 # Notification channels
 # notifiers:
@@ -108,7 +118,7 @@ projects:
 #     escalateAfter: 30m
 #
 #   approved-and-green:
-#     auto: false              # set to true for auto-merge
+#     auto: false
 #     action: notify
 #     priority: action
 #

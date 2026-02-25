@@ -994,6 +994,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
       case "auto-merge": {
         clearTracker(sessionId, projectId, reactionKey);
+        const allowAutoMerge = config.policies?.merge?.allowAutoMerge ?? false;
+        if (!allowAutoMerge) {
+          const blockedEvent = createEvent("reaction.triggered", {
+            sessionId,
+            projectId,
+            message: `Reaction '${reactionKey}' requested auto-merge, but policy disallows it`,
+            data: { reactionKey, blockedByPolicy: true },
+          });
+          await notifyHuman(blockedEvent, "action");
+          return {
+            reactionType: reactionKey,
+            success: false,
+            action: "auto-merge",
+            message: "Auto-merge blocked by policy",
+            escalated: false,
+            escalationLevel: "worker",
+          };
+        }
         // Auto-merge is handled by the SCM plugin
         // For now, just notify
         const event = createEvent("reaction.triggered", {

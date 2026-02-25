@@ -124,8 +124,15 @@ const SpawnPolicySchema = z.object({
   requireValidatedPlanTask: z.boolean().default(false),
 });
 
+const MergePolicySchema = z.object({
+  allowAutoMerge: z.boolean().default(false),
+  requireReviewerAgentGate: z.boolean().default(true),
+  minReviewerAgentApprovals: z.number().int().min(1).max(10).default(2),
+});
+
 const PolicyConfigSchema = z.object({
   spawn: SpawnPolicySchema.default({}),
+  merge: MergePolicySchema.default({}),
 });
 
 const OrchestratorConfigSchema = z.object({
@@ -330,6 +337,34 @@ function applyDefaultReactions(config: OrchestratorConfig): OrchestratorConfig {
   return config;
 }
 
+/** Enforce merge safety policy defaults (auto-merge off unless explicitly enabled). */
+function enforceMergePolicies(config: OrchestratorConfig): OrchestratorConfig {
+  const allowAutoMerge = config.policies?.merge?.allowAutoMerge ?? false;
+  if (allowAutoMerge) return config;
+
+  const downgrade = (reaction: { action?: string; auto?: boolean; message?: string }) => {
+    if (reaction.action !== "auto-merge") return;
+    reaction.action = "notify";
+    reaction.auto = false;
+    if (!reaction.message) {
+      reaction.message = "Auto-merge requested but blocked by policy (allowAutoMerge=false).";
+    }
+  };
+
+  for (const reaction of Object.values(config.reactions)) {
+    downgrade(reaction as { action?: string; auto?: boolean; message?: string });
+  }
+
+  for (const project of Object.values(config.projects)) {
+    if (!project.reactions) continue;
+    for (const reaction of Object.values(project.reactions)) {
+      downgrade(reaction as { action?: string; auto?: boolean; message?: string });
+    }
+  }
+
+  return config;
+}
+
 /**
  * Search for config file in standard locations.
  *
@@ -459,6 +494,7 @@ export function validateConfig(raw: unknown): OrchestratorConfig {
   config = expandPaths(config);
   config = applyProjectDefaults(config);
   config = applyDefaultReactions(config);
+  config = enforceMergePolicies(config);
 
   // Validate project uniqueness and prefix collisions
   validateProjectUniqueness(config);

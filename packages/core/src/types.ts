@@ -968,8 +968,18 @@ export interface SpawnPolicyConfig {
   requireValidatedPlanTask: boolean;
 }
 
+export interface MergePolicyConfig {
+  /** Hard safety switch: when false, auto-merge reactions are ignored. */
+  allowAutoMerge: boolean;
+  /** Require reviewer-agent gate checks before merge. */
+  requireReviewerAgentGate: boolean;
+  /** Minimum number of reviewer-agent approvals required by the gate. */
+  minReviewerAgentApprovals: number;
+}
+
 export interface PolicyConfig {
   spawn: SpawnPolicyConfig;
+  merge?: MergePolicyConfig;
 }
 
 export interface ProjectConfig {

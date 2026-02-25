@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  scripts/reviewer-agent-verdict <pr_number> <APPROVE|REJECT> <reviewer_id> [feedback]
+
+Examples:
+  scripts/reviewer-agent-verdict 42 APPROVE reviewer-alpha "Looks good. CI green."
+  scripts/reviewer-agent-verdict 42 REJECT reviewer-beta ./review-notes.md
+
+Notes:
+  - Set AO_REVIEWER_REPO=owner/repo to target a specific repository.
+  - If feedback points to an existing file, file contents are appended.
+EOF
+}
+
+if [[ $# -lt 3 ]]; then
+  usage
+  exit 1
+fi
+
+PR_NUMBER="$1"
+VERDICT="$(echo "$2" | tr '[:lower:]' '[:upper:]')"
+REVIEWER_ID="$3"
+FEEDBACK_INPUT="${4:-}"
+
+case "$VERDICT" in
+  APPROVE|REJECT) ;;
+  *)
+    echo "error: verdict must be APPROVE or REJECT (got: $VERDICT)" >&2
+    exit 2
+    ;;
+esac
+
+if ! command -v gh >/dev/null 2>&1; then
+  echo "error: gh CLI not found on PATH" >&2
+  exit 3
+fi
+
+REPO_ARGS=()
+if [[ -n "${AO_REVIEWER_REPO:-}" ]]; then
+  REPO_ARGS=(-R "$AO_REVIEWER_REPO")
+fi
+
+if [[ -n "$FEEDBACK_INPUT" && -f "$FEEDBACK_INPUT" ]]; then
+  FEEDBACK_CONTENT="$(cat "$FEEDBACK_INPUT")"
+elif [[ -n "$FEEDBACK_INPUT" ]]; then
+  FEEDBACK_CONTENT="$FEEDBACK_INPUT"
+else
+  FEEDBACK_CONTENT="No additional notes provided."
+fi
+
+TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+COMMENT_BODY=$(cat <<EOF
+AO_REVIEWER_ID: ${REVIEWER_ID}
+AO_REVIEWER_VERDICT: ${VERDICT}
+AO_REVIEWER_TS: ${TIMESTAMP}
+
+${FEEDBACK_CONTENT}
+EOF
+)
+
+gh pr comment "$PR_NUMBER" "${REPO_ARGS[@]}" --body "$COMMENT_BODY" >/dev/null
+echo "posted reviewer verdict: PR #${PR_NUMBER}, verdict=${VERDICT}, reviewer=${REVIEWER_ID}"

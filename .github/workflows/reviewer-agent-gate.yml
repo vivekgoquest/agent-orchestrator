@@ -1,0 +1,80 @@
+name: Reviewer Agent Gate
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  reviewer-gate:
+    name: Reviewer Agent Gate
+    runs-on: ubuntu-latest
+    env:
+      AO_REVIEWER_MIN_APPROVALS: "2"
+      AO_REVIEWER_OVERRIDE_LABEL: "reviewer-gate-override"
+    steps:
+      - name: Validate reviewer-agent verdicts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const minApprovals = Number(process.env.AO_REVIEWER_MIN_APPROVALS ?? "2");
+            const overrideLabel = process.env.AO_REVIEWER_OVERRIDE_LABEL ?? "reviewer-gate-override";
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              core.setFailed("Reviewer Agent Gate only supports pull_request events.");
+              return;
+            }
+
+            const labels = (pr.labels ?? []).map((l) => l.name);
+            if (labels.includes(overrideLabel)) {
+              core.notice(`Bypassed by label '${overrideLabel}'.`);
+              return;
+            }
+
+            const verdictRegex = /AO_REVIEWER_VERDICT\s*:\s*(APPROVE|REJECT)/i;
+            const reviewerRegex = /AO_REVIEWER_ID\s*:\s*([^\n\r]+)/i;
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              per_page: 100,
+            });
+
+            const approvals = new Set();
+            const rejections = new Set();
+
+            for (const comment of comments) {
+              const body = comment.body ?? "";
+              const verdictMatch = body.match(verdictRegex);
+              if (!verdictMatch) continue;
+
+              const reviewerMatch = body.match(reviewerRegex);
+              const reviewerId = (reviewerMatch?.[1]?.trim() || `${comment.user?.login ?? "unknown"}#${comment.id}`);
+              const verdict = verdictMatch[1].toUpperCase();
+
+              if (verdict === "APPROVE") approvals.add(reviewerId);
+              if (verdict === "REJECT") rejections.add(reviewerId);
+            }
+
+            core.info(`Reviewer approvals=${approvals.size}, rejections=${rejections.size}`);
+
+            if (rejections.size > 0) {
+              core.setFailed(`Reviewer agent rejection(s) present: ${Array.from(rejections).join(", ")}`);
+              return;
+            }
+
+            if (approvals.size < minApprovals) {
+              core.setFailed(
+                `Need at least ${minApprovals} reviewer-agent approval verdict(s). Found ${approvals.size}. ` +
+                `Post issue comments with markers: AO_REVIEWER_ID and AO_REVIEWER_VERDICT: APPROVE`
+              );
+              return;
+            }
+
+            core.notice(`Reviewer agent gate passed with ${approvals.size} approval verdict(s).`);
