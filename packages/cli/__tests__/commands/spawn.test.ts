@@ -369,6 +369,11 @@ describe("spawn command", () => {
       projectId: "my-app",
       issueId: "INT-101",
       agent: undefined,
+      planTask: {
+        planId: "workplan",
+        taskId: "task-1",
+        validated: true,
+      },
     });
   });
 });
@@ -422,6 +427,11 @@ describe("batch-spawn command", () => {
       projectId: "my-app",
       issueId: "INT-201",
       agent: undefined,
+      planTask: {
+        planId: "workplan",
+        taskId: "task-1",
+        validated: true,
+      },
     });
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -504,6 +514,11 @@ describe("batch-spawn command", () => {
       projectId: "my-app",
       issueId: "INT-302",
       agent: undefined,
+      planTask: {
+        planId: "workplan",
+        taskId: "task-2",
+        validated: true,
+      },
     });
   });
 
