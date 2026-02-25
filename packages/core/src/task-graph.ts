@@ -1,4 +1,4 @@
-import type { TaskNode, WorkPlan } from "./types.js";
+import type { PlanTaskNode, StructuredWorkPlan } from "./types.js";
 import { validateWorkPlan } from "./work-plan.js";
 
 export type TaskId = string;
@@ -6,7 +6,7 @@ export type TaskState = "blocked" | "ready" | "running" | "complete";
 
 export interface TaskGraphNode {
   id: TaskId;
-  task: TaskNode;
+  task: PlanTaskNode;
   dependencies: TaskId[];
   dependents: TaskId[];
   state: TaskState;
@@ -47,7 +47,7 @@ export interface TaskTransitionResult {
  * Build a normalized DAG model from a validated WorkPlan.
  * Throws TaskGraphCycleError with cycle path details if the plan is cyclic.
  */
-export function buildTaskGraph(rawPlan: WorkPlan | unknown): TaskGraph {
+export function buildTaskGraph(rawPlan: StructuredWorkPlan | unknown): TaskGraph {
   const plan = validateWorkPlan(rawPlan);
   const flattenedTasks = flattenTasks(plan.tasks);
 
@@ -313,8 +313,8 @@ function validatePersistedStates(graph: TaskGraph): void {
   }
 }
 
-function flattenTasks(tasks: TaskNode[]): TaskNode[] {
-  const flattened: TaskNode[] = [];
+function flattenTasks(tasks: PlanTaskNode[]): PlanTaskNode[] {
+  const flattened: PlanTaskNode[] = [];
   for (const task of tasks) {
     flattened.push(task);
     if (task.subtasks) {
@@ -324,7 +324,7 @@ function flattenTasks(tasks: TaskNode[]): TaskNode[] {
   return flattened;
 }
 
-function cloneTask(task: TaskNode): TaskNode {
+function cloneTask(task: PlanTaskNode): PlanTaskNode {
   return {
     ...task,
     dependencies: [...task.dependencies],

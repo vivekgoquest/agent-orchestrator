@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { validateWorkPlan, WorkPlanValidationError } from "../work-plan.js";
-import type { WorkPlan } from "../types.js";
+import type { StructuredWorkPlan } from "../types.js";
 
-function makeValidPlan(): WorkPlan {
+function makeValidPlan(): StructuredWorkPlan {
   return {
     schemaVersion: "1.0",
     goal: "Ship strict planning schema",

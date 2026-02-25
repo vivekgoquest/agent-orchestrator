@@ -6,9 +6,9 @@ import {
   TaskGraphCycleError,
   transitionTaskState,
 } from "../task-graph.js";
-import type { WorkPlan } from "../types.js";
+import type { PlanTaskNode, StructuredWorkPlan } from "../types.js";
 
-function makePlan(tasks: WorkPlan["tasks"]): WorkPlan {
+function makePlan(tasks: PlanTaskNode[]): StructuredWorkPlan {
   return {
     schemaVersion: "1.0",
     goal: "Task graph tests",
@@ -27,7 +27,7 @@ function makePlan(tasks: WorkPlan["tasks"]): WorkPlan {
   };
 }
 
-function makeTask(id: string, dependencies: string[] = []): WorkPlan["tasks"][number] {
+function makeTask(id: string, dependencies: string[] = []): PlanTaskNode {
   return {
     id,
     title: id,

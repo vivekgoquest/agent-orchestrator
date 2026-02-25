@@ -1,5 +1,9 @@
 import { z, type ZodIssue } from "zod";
-import type { AcceptanceContract, TaskNode, WorkPlan } from "./types.js";
+import type {
+  PlanAcceptanceContract,
+  PlanTaskNode,
+  StructuredWorkPlan,
+} from "./types.js";
 
 export interface WorkPlanValidationIssue {
   path: string;
@@ -27,14 +31,14 @@ const AcceptanceCheckSchema = z
   })
   .strict();
 
-export const AcceptanceContractSchema: z.ZodType<AcceptanceContract> = z
+export const AcceptanceContractSchema: z.ZodType<PlanAcceptanceContract> = z
   .object({
     definitionOfDone: z.string().min(1, "acceptance.definitionOfDone cannot be empty"),
     checks: z.array(AcceptanceCheckSchema).min(1, "acceptance.checks must contain at least one check"),
   })
   .strict();
 
-export const TaskNodeSchema: z.ZodType<TaskNode> = z.lazy(() =>
+export const TaskNodeSchema: z.ZodType<PlanTaskNode> = z.lazy(() =>
   z
     .object({
       id: z.string().min(1, "task id cannot be empty"),
@@ -49,7 +53,7 @@ export const TaskNodeSchema: z.ZodType<TaskNode> = z.lazy(() =>
     .strict(),
 );
 
-export const WorkPlanSchema: z.ZodType<WorkPlan> = z
+export const WorkPlanSchema: z.ZodType<StructuredWorkPlan> = z
   .object({
     schemaVersion: z.literal("1.0"),
     goal: z.string().min(1, "goal cannot be empty"),
@@ -60,7 +64,7 @@ export const WorkPlanSchema: z.ZodType<WorkPlan> = z
   .strict();
 
 interface FlattenedTask {
-  task: TaskNode;
+  task: PlanTaskNode;
   path: string;
 }
 
@@ -90,7 +94,7 @@ function issueFromZod(issue: ZodIssue): WorkPlanValidationIssue {
   return { path, message: issue.message };
 }
 
-function flattenTasks(tasks: TaskNode[], parentPath = "tasks"): FlattenedTask[] {
+function flattenTasks(tasks: PlanTaskNode[], parentPath = "tasks"): FlattenedTask[] {
   const flattened: FlattenedTask[] = [];
 
   for (let i = 0; i < tasks.length; i += 1) {
@@ -107,7 +111,7 @@ function flattenTasks(tasks: TaskNode[], parentPath = "tasks"): FlattenedTask[] 
   return flattened;
 }
 
-function validateReferentialIntegrity(plan: WorkPlan): WorkPlanValidationIssue[] {
+function validateReferentialIntegrity(plan: StructuredWorkPlan): WorkPlanValidationIssue[] {
   const issues: WorkPlanValidationIssue[] = [];
 
   const acceptanceIdToPath = new Map<string, string>();
@@ -205,7 +209,7 @@ function validateReferentialIntegrity(plan: WorkPlan): WorkPlanValidationIssue[]
   return issues;
 }
 
-export function validateWorkPlan(raw: unknown): WorkPlan {
+export function validateWorkPlan(raw: unknown): StructuredWorkPlan {
   const parsed = WorkPlanSchema.safeParse(raw);
   if (!parsed.success) {
     throw new WorkPlanValidationError(parsed.error.issues.map(issueFromZod));
