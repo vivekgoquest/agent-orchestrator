@@ -1110,7 +1110,6 @@ export interface SessionMetadata {
   dashboardPort?: number;
   terminalWsPort?: number;
   directTerminalWsPort?: number;
-  planId?: string;
   planVersion?: number;
   planStatus?: PlanStatus;
   planPath?: string;
