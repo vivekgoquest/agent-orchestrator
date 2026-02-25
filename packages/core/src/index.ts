@@ -69,6 +69,26 @@ export type {
   SchedulerService,
 } from "./scheduler.js";
 
+// Worker evidence artifacts — contract + parser utilities
+export {
+  EVIDENCE_METADATA_KEYS,
+  WORKER_EVIDENCE_SCHEMA_VERSION,
+  WORKER_EVIDENCE_DIR,
+  DEFAULT_EVIDENCE_MAX_BYTES,
+  getWorkerEvidencePaths,
+  buildWorkerEvidenceMetadata,
+  initializeWorkerEvidenceArtifacts,
+  parseWorkerEvidence,
+} from "./evidence.js";
+export type {
+  WorkerEvidencePaths,
+  CommandLogEntry,
+  TestRunEntry,
+  KnownRiskEntry,
+  EvidenceArtifactStatus,
+  WorkerEvidenceParseResult,
+} from "./evidence.js";
+
 // Orchestrator prompt — generates orchestrator context for `ao start`
 export { generateOrchestratorPrompt } from "./orchestrator-prompt.js";
 export type { OrchestratorPromptConfig } from "./orchestrator-prompt.js";

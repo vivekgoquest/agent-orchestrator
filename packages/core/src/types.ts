@@ -962,7 +962,7 @@ export interface AcceptanceCheck {
 }
 
 /** Plan-level acceptance contract shared by all tasks. */
-export interface AcceptanceContract {
+export interface PlanAcceptanceContract {
   /** Definition of done for the complete plan. */
   definitionOfDone: string;
   /** Concrete checks that validate the definition of done. */
@@ -970,7 +970,7 @@ export interface AcceptanceContract {
 }
 
 /** A single executable task node in a work plan. */
-export interface TaskNode {
+export interface PlanTaskNode {
   /** Stable task ID, unique across the full plan tree. */
   id: string;
   /** Short task title. */
@@ -986,11 +986,11 @@ export interface TaskNode {
   /** Acceptance check IDs that this task contributes to. */
   acceptanceChecks: string[];
   /** Optional nested subtasks. */
-  subtasks?: TaskNode[];
+  subtasks?: PlanTaskNode[];
 }
 
 /** Machine-validated planning payload produced by orchestrator planning. */
-export interface WorkPlan {
+export interface StructuredWorkPlan {
   /** Schema version for forward compatibility. */
   schemaVersion: "1.0";
   /** High-level goal of the plan. */
@@ -998,9 +998,9 @@ export interface WorkPlan {
   /** Optional plan assumptions. */
   assumptions?: string[];
   /** Executable tasks. Must include at least one root task. */
-  tasks: TaskNode[];
+  tasks: PlanTaskNode[];
   /** Plan-level acceptance contract. */
-  acceptance: AcceptanceContract;
+  acceptance: PlanAcceptanceContract;
 }
 
 // =============================================================================
@@ -1070,6 +1070,12 @@ export interface SessionMetadata {
   planVersion?: number;
   planStatus?: PlanStatus;
   planPath?: string;
+  evidenceSchemaVersion?: string;
+  evidenceDir?: string;
+  evidenceCommandLog?: string;
+  evidenceTestsRun?: string;
+  evidenceChangedPaths?: string;
+  evidenceKnownRisks?: string;
 }
 
 /** Plan lifecycle status for orchestrator planning artifacts. */

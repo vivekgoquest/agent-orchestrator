@@ -63,7 +63,7 @@ beforeEach(() => {
   mockWorkspace = {
     name: "mock-ws",
     create: vi.fn().mockResolvedValue({
-      path: "/tmp/mock-ws/app-1",
+      path: join(tmpDir, "mock-ws", "app-1"),
       branch: "feat/TEST-1",
       sessionId: "app-1",
       projectId: "my-app",
@@ -149,6 +149,26 @@ describe("spawn", () => {
     expect(mockAgent.getLaunchCommand).toHaveBeenCalled();
     // Verify runtime was created
     expect(mockRuntime.create).toHaveBeenCalled();
+
+    const createCall = vi.mocked(mockRuntime.create).mock.calls[0]?.[0];
+    expect(createCall?.environment.AO_EVIDENCE_DIR).toBe(
+      join(tmpDir, "mock-ws", "app-1", ".ao", "evidence", "app-1"),
+    );
+    expect(createCall?.environment.AO_EVIDENCE_SCHEMA_VERSION).toBe("1");
+    expect(
+      existsSync(join(tmpDir, "mock-ws", "app-1", ".ao", "evidence", "app-1", "command-log.json")),
+    ).toBe(true);
+    expect(
+      existsSync(join(tmpDir, "mock-ws", "app-1", ".ao", "evidence", "app-1", "tests-run.json")),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(tmpDir, "mock-ws", "app-1", ".ao", "evidence", "app-1", "changed-paths.json"),
+      ),
+    ).toBe(true);
+    expect(
+      existsSync(join(tmpDir, "mock-ws", "app-1", ".ao", "evidence", "app-1", "known-risks.json")),
+    ).toBe(true);
   });
 
   it("uses issue ID to derive branch name", async () => {
@@ -210,6 +230,11 @@ describe("spawn", () => {
     expect(meta!.status).toBe("spawning");
     expect(meta!.project).toBe("my-app");
     expect(meta!.issue).toBe("INT-42");
+    expect(meta!.evidenceSchemaVersion).toBe("1");
+    expect(meta!.evidenceCommandLog).toContain("/.ao/evidence/app-1/command-log.json");
+    expect(meta!.evidenceTestsRun).toContain("/.ao/evidence/app-1/tests-run.json");
+    expect(meta!.evidenceChangedPaths).toContain("/.ao/evidence/app-1/changed-paths.json");
+    expect(meta!.evidenceKnownRisks).toContain("/.ao/evidence/app-1/known-risks.json");
   });
 
   it("throws for unknown project", async () => {

@@ -37,7 +37,16 @@ export const BASE_AGENT_PROMPT = `You are an AI coding agent managed by the Agen
 - Write a clear PR title and description explaining what changed and why.
 - Link the issue in the PR description so it auto-closes when merged.
 - If the repo has CI checks, make sure they pass before requesting review.
-- Respond to every review comment, even if just to acknowledge it.`;
+- Respond to every review comment, even if just to acknowledge it.
+
+## Completion Evidence
+- Use the \`AO_EVIDENCE_DIR\` environment variable for completion artifacts.
+- Keep evidence concise and structured (avoid dumping full terminal transcripts).
+- Before you finish, update these files and set \`"complete": true\` in each:
+  - \`command-log.json\` (commands executed, with exit codes)
+  - \`tests-run.json\` (tests/lint/build commands and outcomes)
+  - \`changed-paths.json\` (files changed)
+  - \`known-risks.json\` (remaining risks, caveats, follow-ups)`;
 
 // =============================================================================
 // TYPES

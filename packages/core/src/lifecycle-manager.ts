@@ -36,6 +36,7 @@ import {
 import { updateMetadata } from "./metadata.js";
 import { getSessionsDir } from "./paths.js";
 import { buildReactionMessage } from "./reaction-message.js";
+import { parseWorkerEvidence } from "./evidence.js";
 
 /** Parse a duration string like "10m", "30s", "1h" to milliseconds. */
 function parseDuration(str: string): number {
@@ -178,6 +179,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let polling = false; // re-entrancy guard
   let allCompleteEmitted = false; // guard against repeated all_complete
+  const COMPLETE_STATUSES = new Set<SessionStatus>(["merged", "killed", "done"]);
 
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
@@ -198,6 +200,24 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // 2. Check agent activity via terminal output + process liveness
+    if (!session.pr && session.workspacePath) {
+      const evidence = parseWorkerEvidence({
+        sessionId: session.id,
+        workspacePath: session.workspacePath,
+        metadata: session.metadata ?? {},
+      });
+      if (
+        evidence.status === "complete" &&
+        (session.status === "spawning" ||
+          session.status === SESSION_STATUS.WORKING ||
+          session.status === SESSION_STATUS.NEEDS_INPUT ||
+          session.status === SESSION_STATUS.STUCK)
+      ) {
+        return SESSION_STATUS.DONE;
+      }
+    }
+
+    // 3. Check agent activity via terminal output + process liveness
     if (agent && session.runtimeHandle) {
       try {
         const runtime = registry.get<Runtime>(
@@ -231,7 +251,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // 3. Auto-detect PR by branch if metadata.pr is missing.
+    // 4. Auto-detect PR by branch if metadata.pr is missing.
     //    This is critical for agents without auto-hook systems (Codex, Aider,
     //    OpenCode) that can't reliably write pr=<url> to metadata on their own.
     if (!session.pr && scm && session.branch) {
@@ -250,7 +270,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // 4. Check PR state if PR exists
+    // 5. Check PR state if PR exists
     if (session.pr && scm) {
       try {
         const prState = await scm.getPRState(session.pr);
@@ -278,7 +298,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
     }
 
-    // 5. Default: if agent is active, it's working
+    // 6. Default: if agent is active, it's working
     if (
       session.status === "spawning" ||
       session.status === SESSION_STATUS.STUCK ||
@@ -551,7 +571,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       // (e.g., list() detected a dead runtime and marked it "killed" — we need to
       // process that transition even though the new status is terminal)
       const sessionsToCheck = sessions.filter((s) => {
-        if (s.status !== "merged" && s.status !== "killed") return true;
+        if (!COMPLETE_STATUSES.has(s.status)) return true;
         const tracked = states.get(s.id);
         return tracked !== undefined && tracked !== s.status;
       });
@@ -575,7 +595,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       }
 
       // Check if all sessions are complete (trigger reaction only once)
-      const activeSessions = sessions.filter((s) => s.status !== "merged" && s.status !== "killed");
+      const activeSessions = sessions.filter((s) => !COMPLETE_STATUSES.has(s.status));
       if (sessions.length > 0 && activeSessions.length === 0 && !allCompleteEmitted) {
         allCompleteEmitted = true;
 
