@@ -140,6 +140,113 @@ describe("parseWorkerEvidence", () => {
     expect(parsed.commandLog.items).toEqual([]);
   });
 
+  it("falls back from corrupt tests and changed-path artifacts using command log", () => {
+    const { paths, metadata } = initializeWorkerEvidenceArtifacts(workspacePath, "app-1");
+
+    writeFileSync(
+      paths.commandLog,
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        entries: [
+          { command: "pnpm test --filter @composio/ao-core", exitCode: 0 },
+          { command: "git add packages/core/src/evidence.ts", exitCode: 0 },
+        ],
+      }),
+    );
+    writeFileSync(paths.testsRun, "{bad-json");
+    writeFileSync(paths.changedPaths, JSON.stringify({ schemaVersion: "1", complete: true }));
+
+    const parsed = parseWorkerEvidence({
+      sessionId: "app-1",
+      workspacePath,
+      metadata,
+    });
+
+    expect(parsed.status).toBe("incomplete");
+    expect(parsed.testsRun.status).toBe("fallback");
+    expect(parsed.testsRun.items[0]?.status).toBe("passed");
+    expect(parsed.changedPaths.status).toBe("fallback");
+    expect(parsed.changedPaths.items).toContain("packages/core/src/evidence.ts");
+    expect(parsed.warnings.some((warning) => warning.includes("tests-run: fallback"))).toBe(true);
+    expect(parsed.warnings.some((warning) => warning.includes("changed-paths: fallback"))).toBe(true);
+  });
+
+  it("marks oversized artifacts as corrupt using max byte limits", () => {
+    const { paths, metadata } = initializeWorkerEvidenceArtifacts(workspacePath, "app-1");
+
+    writeFileSync(
+      paths.commandLog,
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        entries: [{ command: "pnpm --filter @composio/ao-core test", exitCode: 0 }],
+      }),
+    );
+
+    const parsed = parseWorkerEvidence(
+      {
+        sessionId: "app-1",
+        workspacePath,
+        metadata,
+      },
+      { maxBytes: 32 },
+    );
+
+    expect(parsed.status).toBe("corrupt");
+    expect(parsed.commandLog.status).toBe("corrupt");
+    expect(parsed.commandLog.error).toContain("artifact exceeds max size");
+  });
+
+  it("caps noisy artifacts and emits truncation warnings", () => {
+    const { paths, metadata } = initializeWorkerEvidenceArtifacts(workspacePath, "app-1");
+    const changedPaths = Array.from({ length: 600 }, (_, index) => `packages/core/file-${index}.ts`);
+
+    writeFileSync(
+      paths.commandLog,
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        entries: [{ command: "pnpm --filter @composio/ao-core test", exitCode: 0 }],
+      }),
+    );
+    writeFileSync(
+      paths.testsRun,
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        tests: [{ command: "pnpm --filter @composio/ao-core test", status: "passed" }],
+      }),
+    );
+    writeFileSync(
+      paths.changedPaths,
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        paths: changedPaths,
+      }),
+    );
+    writeFileSync(
+      paths.knownRisks,
+      JSON.stringify({
+        schemaVersion: "1",
+        complete: true,
+        risks: [{ risk: "Large artifact payloads can be noisy", mitigation: "Capped parser output" }],
+      }),
+    );
+
+    const parsed = parseWorkerEvidence({
+      sessionId: "app-1",
+      workspacePath,
+      metadata,
+    });
+
+    expect(parsed.status).toBe("complete");
+    expect(parsed.changedPaths.status).toBe("ok");
+    expect(parsed.changedPaths.items).toHaveLength(500);
+    expect(parsed.warnings).toContain("changed-paths: truncated to 500 items");
+  });
+
   it("returns missing status when neither workspace path nor pointers are available", () => {
     const parsed = parseWorkerEvidence({
       sessionId: "app-1",
@@ -151,4 +258,3 @@ describe("parseWorkerEvidence", () => {
     expect(parsed.warnings[0]).toContain("missing workspace path");
   });
 });
-

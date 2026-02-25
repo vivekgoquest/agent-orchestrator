@@ -63,6 +63,7 @@ interface ParsedArtifact<T> {
   status: EvidenceArtifactStatus;
   complete: boolean;
   items: T[];
+  truncated?: boolean;
   error?: string;
 }
 
@@ -283,9 +284,11 @@ function toKnownRisk(item: unknown): KnownRiskEntry | null {
   };
 }
 
-function clampItems<T>(items: T[]): T[] {
-  if (items.length <= MAX_EVIDENCE_ITEMS) return items;
-  return items.slice(0, MAX_EVIDENCE_ITEMS);
+function clampItems<T>(items: T[]): { items: T[]; truncated: boolean } {
+  if (items.length <= MAX_EVIDENCE_ITEMS) {
+    return { items, truncated: false };
+  }
+  return { items: items.slice(0, MAX_EVIDENCE_ITEMS), truncated: true };
 }
 
 function parseArtifactArray<T>(
@@ -318,7 +321,8 @@ function parseArtifactArray<T>(
     path: artifactPath,
     status: "ok",
     complete: pickBoolean(read.data, "complete"),
-    items: parsed,
+    items: parsed.items,
+    truncated: parsed.truncated,
   };
 }
 
@@ -347,11 +351,15 @@ function parseKnownRisksArtifact(
   return parseArtifactArray(artifactPath, ["risks", "entries"], toKnownRisk, context);
 }
 
-function deriveTestsFromCommandLog(entries: CommandLogEntry[]): TestRunEntry[] {
+function deriveTestsFromCommandLog(entries: CommandLogEntry[]): {
+  items: TestRunEntry[];
+  truncated: boolean;
+} {
   const seen = new Set<string>();
   const derived: TestRunEntry[] = [];
   const testPattern =
     /\b(vitest|jest|mocha|ava|pytest|go test|cargo test|pnpm test|npm test|yarn test|bun test|mvn test|gradle test)\b/i;
+  let truncated = false;
 
   for (const entry of entries) {
     const command = entry.command.trim();
@@ -368,15 +376,22 @@ function deriveTestsFromCommandLog(entries: CommandLogEntry[]): TestRunEntry[] {
             : "failed",
       details: "derived from command log",
     });
-    if (derived.length >= MAX_EVIDENCE_ITEMS) break;
+    if (derived.length >= MAX_EVIDENCE_ITEMS) {
+      truncated = true;
+      break;
+    }
   }
 
-  return derived;
+  return { items: derived, truncated };
 }
 
-function deriveChangedPathsFromCommandLog(entries: CommandLogEntry[]): string[] {
+function deriveChangedPathsFromCommandLog(entries: CommandLogEntry[]): {
+  items: string[];
+  truncated: boolean;
+} {
   const derived: string[] = [];
   const seen = new Set<string>();
+  let truncated = false;
 
   for (const entry of entries) {
     const cmd = entry.command.trim();
@@ -392,14 +407,24 @@ function deriveChangedPathsFromCommandLog(entries: CommandLogEntry[]): string[] 
       if (seen.has(arg)) continue;
       seen.add(arg);
       derived.push(arg);
-      if (derived.length >= MAX_EVIDENCE_ITEMS) return derived;
+      if (derived.length >= MAX_EVIDENCE_ITEMS) {
+        truncated = true;
+        return { items: derived, truncated };
+      }
     }
   }
 
-  return derived;
+  return { items: derived, truncated };
 }
 
-function addWarning(warnings: string[], label: string, artifact: { status: string; error?: string }): void {
+function addWarning(
+  warnings: string[],
+  label: string,
+  artifact: { status: string; truncated?: boolean; error?: string },
+): void {
+  if (artifact.truncated) {
+    warnings.push(`${label}: truncated to ${MAX_EVIDENCE_ITEMS} items`);
+  }
   if (artifact.status === "ok") return;
   if (artifact.error) {
     warnings.push(`${label}: ${artifact.status} (${artifact.error})`);
@@ -527,11 +552,12 @@ export function parseWorkerEvidence(
 
   if ((testsRun.status === "missing" || testsRun.status === "corrupt") && commandLog.items.length > 0) {
     const fallbackTests = deriveTestsFromCommandLog(commandLog.items);
-    if (fallbackTests.length > 0) {
+    if (fallbackTests.items.length > 0) {
       testsRun = {
         ...testsRun,
         status: "fallback",
-        items: fallbackTests,
+        items: fallbackTests.items,
+        truncated: fallbackTests.truncated,
         complete: false,
         error: testsRun.error ? `${testsRun.error}; derived from command log` : "derived from command log",
       };
@@ -543,11 +569,12 @@ export function parseWorkerEvidence(
     commandLog.items.length > 0
   ) {
     const fallbackPaths = deriveChangedPathsFromCommandLog(commandLog.items);
-    if (fallbackPaths.length > 0) {
+    if (fallbackPaths.items.length > 0) {
       changedPaths = {
         ...changedPaths,
         status: "fallback",
-        items: fallbackPaths,
+        items: fallbackPaths.items,
+        truncated: fallbackPaths.truncated,
         complete: false,
         error: changedPaths.error
           ? `${changedPaths.error}; derived from command log`
@@ -589,4 +616,3 @@ export function parseWorkerEvidence(
     warnings,
   };
 }
-
