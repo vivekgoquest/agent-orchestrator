@@ -569,7 +569,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         tmuxName, // Store tmux name for mapping
         issue: spawnConfig.issueId,
         taskId: spawnConfig.issueId ?? sessionId,
-        planId: "default",
+        planId: spawnConfig.planTask?.planId ?? "default",
         project: spawnConfig.projectId,
         agent: plugins.agent.name, // Persist agent name for lifecycle manager
         createdAt: new Date().toISOString(),
@@ -580,7 +580,6 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         evidenceTestsRun: evidence.metadata["evidenceTestsRun"],
         evidenceChangedPaths: evidence.metadata["evidenceChangedPaths"],
         evidenceKnownRisks: evidence.metadata["evidenceKnownRisks"],
-        planId: spawnConfig.planTask?.planId,
         planTaskId: spawnConfig.planTask?.taskId,
         planTaskValidated: spawnConfig.planTask
           ? String(spawnConfig.planTask.validated)
@@ -1031,7 +1030,6 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
         project: raw["project"],
         createdAt: raw["createdAt"],
         runtimeHandle: raw["runtimeHandle"],
-        planId: raw["planId"],
         planTaskId: raw["planTaskId"],
         planTaskValidated: raw["planTaskValidated"],
       });
