@@ -453,6 +453,7 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       projectId: spawnConfig.projectId,
       issueId: spawnConfig.issueId,
       issueContext,
+      acceptanceContract: resolvedIssue?.acceptanceContract,
       userPrompt: spawnConfig.prompt,
     });
 

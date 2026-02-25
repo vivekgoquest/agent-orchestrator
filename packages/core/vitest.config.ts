@@ -10,6 +10,7 @@ export default defineConfig({
       // Integration tests import real plugins. These aliases resolve
       // package names to source files so we don't need circular devDeps
       // (plugins depend on core, core can't depend on plugins).
+      "@composio/ao-core": resolve(__dirname, "src/index.ts"),
       "@composio/ao-plugin-tracker-github": resolve(
         __dirname,
         "../plugins/tracker-github/src/index.ts",

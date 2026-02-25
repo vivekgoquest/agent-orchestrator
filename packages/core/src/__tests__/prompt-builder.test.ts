@@ -200,6 +200,98 @@ describe("buildPrompt", () => {
     expect(result).toContain("ci-failed");
     expect(result).not.toContain("approved-and-green");
   });
+
+  it("includes acceptance checklist and completion payload format when provided", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-200",
+      acceptanceContract: {
+        functional: ["Add create-user endpoint", "Return 201 on success"],
+        testing: ["Add unit tests for success and error paths"],
+        performance: ["P95 latency under 200ms for create-user endpoint"],
+        security: ["Validate auth token before mutation"],
+        docs: ["Update API docs for new endpoint"],
+      },
+    });
+
+    expect(result).toContain("## Acceptance Checklist (MANDATORY)");
+    expect(result).toContain("### Functional Requirements");
+    expect(result).toContain("### Testing Requirements");
+    expect(result).toContain("### Performance Requirements");
+    expect(result).toContain("### Security Requirements");
+    expect(result).toContain("### Documentation Requirements");
+    expect(result).toContain("## Completion Payload (REQUIRED)");
+    expect(result).toContain(`"acceptance"`);
+  });
+
+  it("does not include acceptance section for legacy issue prompts", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-201",
+      issueContext: "Issue context without acceptance contract",
+    });
+
+    expect(result).not.toContain("## Acceptance Checklist (MANDATORY)");
+    expect(result).not.toContain("## Completion Payload (REQUIRED)");
+  });
+
+  it("matches snapshot for acceptance-contract prompt", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-202",
+      issueContext: "## Tracker Issue INT-202\nTitle: Add prompt acceptance contract support",
+      acceptanceContract: {
+        functional: ["Implement acceptance contract prompt support."],
+        testing: ["Add prompt snapshot coverage for acceptance contract tasks."],
+        performance: ["Keep prompt composition deterministic."],
+        security: ["Do not include secrets in prompt output."],
+        docs: ["Document completion payload contract in prompt text."],
+      },
+      userPrompt: "Focus on required acceptance outcomes.",
+    });
+
+    expect(result).toMatchSnapshot();
+  });
+
+  it("matches snapshot for full layered prompt", () => {
+    project.tracker = { plugin: "linear" };
+    project.reactions = {
+      "ci-failed": { auto: true, action: "send-to-agent" },
+      "approved-and-green": { auto: true, action: "notify", priority: "info" },
+    };
+    project.agentRules = "Inline rule: run tests before opening a PR.";
+
+    const rulesPath = join(tmpDir, "agent-rules.md");
+    writeFileSync(
+      rulesPath,
+      ["File rule: use conventional commits.", "File rule: avoid force pushes."].join("\n"),
+    );
+    project.agentRulesFile = "agent-rules.md";
+
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      issueContext: "## Tracker Issue INT-1343\nTitle: Add acceptance checklist to worker prompt",
+      userPrompt: "Keep the implementation focused and include tests.",
+    });
+
+    expect(result).toMatchSnapshot();
+  });
+
+  it("matches snapshot for backwards-compatible rules-only prompt", () => {
+    project.agentRules = "Always lint before committing.";
+
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+
+    expect(result).toMatchSnapshot();
+  });
 });
 
 describe("BASE_AGENT_PROMPT", () => {

@@ -450,6 +450,38 @@ export interface Tracker {
   createIssue?(input: CreateIssueInput, project: ProjectConfig): Promise<Issue>;
 }
 
+/**
+ * Acceptance contract attached to a task/issue.
+ * Each category is optional to preserve compatibility with legacy tasks.
+ */
+export interface AcceptanceContract {
+  functional?: string[];
+  testing?: string[];
+  performance?: string[];
+  security?: string[];
+  docs?: string[];
+  /**
+   * Optional override for the completion payload instructions shown in prompts.
+   * When omitted, core prompt-builder uses a default JSON payload template.
+   */
+  completionPayloadFormat?: string;
+}
+
+/** Planned unit of work for orchestrator/worker task planning. */
+export interface WorkPlanTask {
+  id: string;
+  title: string;
+  description?: string;
+  acceptanceContract?: AcceptanceContract;
+}
+
+/** Work plan schema (v1), designed for future task planning workflows. */
+export interface WorkPlan {
+  version: "v1";
+  issueId?: string;
+  tasks: WorkPlanTask[];
+}
+
 export interface Issue {
   id: string;
   title: string;
@@ -459,6 +491,7 @@ export interface Issue {
   labels: string[];
   assignee?: string;
   priority?: number;
+  acceptanceContract?: AcceptanceContract;
 }
 
 export interface IssueFilters {

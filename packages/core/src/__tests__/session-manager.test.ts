@@ -354,6 +354,55 @@ describe("spawn", () => {
     expect(session.issueId).toBe("INT-100");
   });
 
+  it("injects issue acceptance contract into worker prompt", async () => {
+    const mockTracker: Tracker = {
+      name: "mock-tracker",
+      getIssue: vi.fn().mockResolvedValue({
+        id: "INT-101",
+        title: "Acceptance contract task",
+        description: "Implement prompt support",
+        url: "https://linear.app/test/issue/INT-101",
+        state: "open",
+        labels: [],
+        acceptanceContract: {
+          functional: ["Support acceptance-contract prompt sections."],
+          testing: ["Add snapshot tests for contract prompts."],
+          performance: ["Keep prompt generation deterministic and fast."],
+          security: ["Avoid leaking secrets in prompt text."],
+          docs: ["Document completion payload requirements in prompt."],
+        },
+      }),
+      isCompleted: vi.fn().mockResolvedValue(false),
+      issueUrl: vi.fn().mockReturnValue("https://linear.app/test/issue/INT-101"),
+      branchName: vi.fn().mockReturnValue("feat/INT-101"),
+      generatePrompt: vi.fn().mockResolvedValue("Work on INT-101"),
+    };
+
+    const registryWithTracker: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "workspace") return mockWorkspace;
+        if (slot === "tracker") return mockTracker;
+        return null;
+      }),
+    };
+
+    const sm = createSessionManager({
+      config,
+      registry: registryWithTracker,
+    });
+
+    await sm.spawn({ projectId: "my-app", issueId: "INT-101" });
+
+    const launchConfig = (mockAgent.getLaunchCommand as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(launchConfig.prompt).toContain("## Acceptance Checklist (MANDATORY)");
+    expect(launchConfig.prompt).toContain("### Functional Requirements");
+    expect(launchConfig.prompt).toContain("Support acceptance-contract prompt sections.");
+    expect(launchConfig.prompt).toContain("## Completion Payload (REQUIRED)");
+  });
+
   it("succeeds with ad-hoc issue string when tracker returns IssueNotFoundError", async () => {
     const mockTracker: Tracker = {
       name: "mock-tracker",
