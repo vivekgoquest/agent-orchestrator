@@ -1135,6 +1135,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   async function determineStatus(session: Session): Promise<SessionStatus> {
     const project = config.projects[session.projectId];
     if (!project) return session.status;
+    const roleSession = isVerifierSession(session) || isReviewerSession(session);
 
     const agentName = session.metadata["agent"] ?? project.agent ?? config.defaults.agent;
     const agent = registry.get<Agent>("agent", agentName);
@@ -1209,7 +1210,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Auto-detect PR by branch if metadata.pr is missing.
     //    This is critical for agents without auto-hook systems (Codex, Aider,
     //    OpenCode) that can't reliably write pr=<url> to metadata on their own.
-    if (!session.pr && scm && session.branch) {
+    if (!roleSession && !session.pr && scm && session.branch) {
       try {
         const detectedPR = await scm.detectPR(session, project);
         if (detectedPR) {
@@ -1226,7 +1227,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // 5. Check PR state if PR exists
-    if (session.pr && scm) {
+    if (!roleSession && session.pr && scm) {
       try {
         const prState = await scm.getPRState(session.pr);
         if (prState === PR_STATE.MERGED) return "merged";
