@@ -221,7 +221,6 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     tmuxName: raw["tmuxName"],
     issue: raw["issue"],
     taskId: raw["taskId"],
-    planId: raw["planId"],
     pr: raw["pr"],
     summary: raw["summary"],
     project: raw["project"],
