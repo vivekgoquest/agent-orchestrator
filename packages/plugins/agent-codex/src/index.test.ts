@@ -518,7 +518,7 @@ describe("getSessionInfo", () => {
 
   it("extracts summary, session id, and cost from matching rollout", async () => {
     const root = "/mock/home/.codex/sessions";
-    const file = `${root}/rollout-2026-02-25T01-02-03-abc123.jsonl`;
+    const _file = `${root}/rollout-2026-02-25T01-02-03-abc123.jsonl`;
     mockReaddir.mockResolvedValue(["rollout-2026-02-25T01-02-03-abc123.jsonl"]);
     mockStat.mockResolvedValue({
       isDirectory: () => false,

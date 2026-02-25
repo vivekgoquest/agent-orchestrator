@@ -95,11 +95,24 @@ reactions:
     action: send-to-agent
     escalateAfter: 30m
   approved-and-green:
-    auto: false       # flip to true for auto-merge
+    auto: false
     action: notify
+
+policies:
+  merge:
+    allowAutoMerge: false
+    requireReviewerAgentGate: true
+    minReviewerAgentApprovals: 2
 ```
 
 CI fails → agent gets the logs and fixes it. Reviewer requests changes → agent addresses them. PR approved with green CI → you get a notification to merge.
+
+Reviewer-agent gate comments should include:
+
+```text
+AO_REVIEWER_ID: reviewer-1
+AO_REVIEWER_VERDICT: APPROVE
+```
 
 See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the full reference.
 
