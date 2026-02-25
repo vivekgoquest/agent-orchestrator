@@ -225,6 +225,42 @@ describe("buildPrompt", () => {
     expect(result).toContain(`"acceptance"`);
   });
 
+  it("uses custom completion payload format when provided", () => {
+    const customPayload = `\`\`\`json
+{"status":"<completed|blocked>","checks":[{"name":"functional","result":"<pass|fail>"}]}
+\`\`\``;
+
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-203",
+      acceptanceContract: {
+        functional: ["Ship acceptance checklist output."],
+        completionPayloadFormat: customPayload,
+      },
+    });
+
+    expect(result).toContain("## Completion Payload (REQUIRED)");
+    expect(result).toContain(customPayload);
+    expect(result).not.toContain(`"acceptance": {`);
+  });
+
+  it("includes acceptance section when only completion payload format is provided", () => {
+    const customPayload = `\`\`\`json\n{"status":"<completed|blocked>"}\n\`\`\``;
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-204",
+      acceptanceContract: {
+        completionPayloadFormat: customPayload,
+      },
+    });
+
+    expect(result).toContain("## Acceptance Checklist (MANDATORY)");
+    expect(result).toContain("No explicit requirement provided.");
+    expect(result).toContain(customPayload);
+  });
+
   it("does not include acceptance section for legacy issue prompts", () => {
     const result = buildPrompt({
       project,
@@ -251,6 +287,20 @@ describe("buildPrompt", () => {
         docs: ["Document completion payload contract in prompt text."],
       },
       userPrompt: "Focus on required acceptance outcomes.",
+    });
+
+    expect(result).toMatchSnapshot();
+  });
+
+  it("matches snapshot for payload-only acceptance-contract prompt", () => {
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-205",
+      issueContext: "## Tracker Issue INT-205\nTitle: Enforce custom completion payload",
+      acceptanceContract: {
+        completionPayloadFormat: `\`\`\`json\n{"status":"<completed|blocked>","details":"<summary>"}\n\`\`\``,
+      },
     });
 
     expect(result).toMatchSnapshot();
