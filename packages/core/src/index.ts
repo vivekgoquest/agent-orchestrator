@@ -89,6 +89,7 @@ export type { PromptBuildConfig } from "./prompt-builder.js";
 // Scheduler — DAG ready-queue computation with concurrency limits
 export { createScheduler } from "./scheduler.js";
 export type {
+  SchedulerPriorityPolicy,
   TaskNodeState,
   TaskNode,
   TaskGraph,
