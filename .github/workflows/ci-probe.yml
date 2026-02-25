@@ -1,0 +1,20 @@
+name: CI Probe
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: Probe Trigger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print event context
+        run: |
+          echo "event=${{ github.event_name }}"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"
+          echo "actor=${{ github.actor }}"
