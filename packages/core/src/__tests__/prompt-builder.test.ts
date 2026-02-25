@@ -200,6 +200,43 @@ describe("buildPrompt", () => {
     expect(result).toContain("ci-failed");
     expect(result).not.toContain("approved-and-green");
   });
+
+  it("matches snapshot for full layered prompt", () => {
+    project.tracker = { plugin: "linear" };
+    project.reactions = {
+      "ci-failed": { auto: true, action: "send-to-agent" },
+      "approved-and-green": { auto: true, action: "notify", priority: "info" },
+    };
+    project.agentRules = "Inline rule: run tests before opening a PR.";
+
+    const rulesPath = join(tmpDir, "agent-rules.md");
+    writeFileSync(
+      rulesPath,
+      ["File rule: use conventional commits.", "File rule: avoid force pushes."].join("\n"),
+    );
+    project.agentRulesFile = "agent-rules.md";
+
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+      issueId: "INT-1343",
+      issueContext: "## Tracker Issue INT-1343\nTitle: Add acceptance checklist to worker prompt",
+      userPrompt: "Keep the implementation focused and include tests.",
+    });
+
+    expect(result).toMatchSnapshot();
+  });
+
+  it("matches snapshot for backwards-compatible rules-only prompt", () => {
+    project.agentRules = "Always lint before committing.";
+
+    const result = buildPrompt({
+      project,
+      projectId: "test-app",
+    });
+
+    expect(result).toMatchSnapshot();
+  });
 });
 
 describe("BASE_AGENT_PROMPT", () => {
