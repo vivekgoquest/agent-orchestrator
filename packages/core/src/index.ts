@@ -18,6 +18,19 @@ export {
   findConfigFile,
 } from "./config.js";
 
+// TaskGraph — DAG model + state transitions
+export {
+  applyTaskGraphSnapshot,
+  buildTaskGraph,
+  findCyclePath,
+  getReadyTaskIds,
+  snapshotTaskGraph,
+  syncBlockedAndReadyStates,
+  transitionTaskState,
+  TaskGraphCycleError,
+  TaskTransitionError,
+} from "./task-graph.js";
+
 // Plugin registry
 export { createPluginRegistry } from "./plugin-registry.js";
 
