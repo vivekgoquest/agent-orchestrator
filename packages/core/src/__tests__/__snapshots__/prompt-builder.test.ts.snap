@@ -21,6 +21,15 @@ exports[`buildPrompt > matches snapshot for acceptance-contract prompt 1`] = `
 - If the repo has CI checks, make sure they pass before requesting review.
 - Respond to every review comment, even if just to acknowledge it.
 
+## Completion Evidence
+- Use the \`AO_EVIDENCE_DIR\` environment variable for completion artifacts.
+- Keep evidence concise and structured (avoid dumping full terminal transcripts).
+- Before you finish, update these files and set \`"complete": true\` in each:
+  - \`command-log.json\` (commands executed, with exit codes)
+  - \`tests-run.json\` (tests/lint/build commands and outcomes)
+  - \`changed-paths.json\` (files changed)
+  - \`known-risks.json\` (remaining risks, caveats, follow-ups)
+
 ## Project Context
 - Project: Test App
 - Repository: org/test-app
@@ -94,6 +103,15 @@ exports[`buildPrompt > matches snapshot for backwards-compatible rules-only prom
 - If the repo has CI checks, make sure they pass before requesting review.
 - Respond to every review comment, even if just to acknowledge it.
 
+## Completion Evidence
+- Use the \`AO_EVIDENCE_DIR\` environment variable for completion artifacts.
+- Keep evidence concise and structured (avoid dumping full terminal transcripts).
+- Before you finish, update these files and set \`"complete": true\` in each:
+  - \`command-log.json\` (commands executed, with exit codes)
+  - \`tests-run.json\` (tests/lint/build commands and outcomes)
+  - \`changed-paths.json\` (files changed)
+  - \`known-risks.json\` (remaining risks, caveats, follow-ups)
+
 ## Project Context
 - Project: Test App
 - Repository: org/test-app
@@ -123,6 +141,15 @@ exports[`buildPrompt > matches snapshot for full layered prompt 1`] = `
 - Link the issue in the PR description so it auto-closes when merged.
 - If the repo has CI checks, make sure they pass before requesting review.
 - Respond to every review comment, even if just to acknowledge it.
+
+## Completion Evidence
+- Use the \`AO_EVIDENCE_DIR\` environment variable for completion artifacts.
+- Keep evidence concise and structured (avoid dumping full terminal transcripts).
+- Before you finish, update these files and set \`"complete": true\` in each:
+  - \`command-log.json\` (commands executed, with exit codes)
+  - \`tests-run.json\` (tests/lint/build commands and outcomes)
+  - \`changed-paths.json\` (files changed)
+  - \`known-risks.json\` (remaining risks, caveats, follow-ups)
 
 ## Project Context
 - Project: Test App
