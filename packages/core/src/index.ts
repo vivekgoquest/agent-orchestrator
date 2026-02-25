@@ -30,6 +30,14 @@ export {
   TaskGraphCycleError,
   TaskTransitionError,
 } from "./task-graph.js";
+export type {
+  TaskId as PlanTaskId,
+  TaskState as PlanTaskState,
+  TaskGraphNode as PlanTaskGraphNode,
+  TaskGraph as PlanTaskGraph,
+  TaskGraphSnapshot as PlanTaskGraphSnapshot,
+  TaskTransitionResult as PlanTaskTransitionResult,
+} from "./task-graph.js";
 
 // Plugin registry
 export { createPluginRegistry } from "./plugin-registry.js";
