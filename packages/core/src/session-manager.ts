@@ -1015,7 +1015,9 @@ export function createSessionManager(deps: SessionManagerDeps): SessionManager {
       throw new Error(`Session ${sessionId} not found`);
     }
 
-    // If restored from archive, recreate the active metadata file
+    // If restored from archive, recreate the active metadata file by copying
+    // all archived key/value pairs verbatim. This preserves plan lifecycle
+    // metadata (planId/planVersion/planStatus/planPath) and any future fields.
     if (fromArchive) {
       writeMetadata(sessionsDir, sessionId, {
         worktree: raw["worktree"] ?? "",
