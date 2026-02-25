@@ -22,19 +22,23 @@ import { createDirectTerminalServer, type DirectTerminalServer } from "../direct
 const TMUX = findTmux();
 const TEST_SESSION = `ao-test-integration-${process.pid}`;
 const TEST_HASH_SESSION = `abcdef123456-${TEST_SESSION}`;
+const PREFLIGHT_SESSION = `ao-test-pty-preflight-${process.pid}`;
 
 function hasPtySupport(): boolean {
-  const shell = process.env.SHELL || "/bin/sh";
   const env = {
     HOME: process.env.HOME || "/tmp",
     PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
     TERM: "xterm-256color",
-    SHELL: shell,
+    SHELL: process.env.SHELL || "/bin/sh",
     USER: process.env.USER || "test",
-  };
+  } as Record<string, string>;
 
   try {
-    const probe = ptySpawn(shell, ["-lc", "exit 0"], {
+    execFileSync(TMUX, ["new-session", "-d", "-s", PREFLIGHT_SESSION, "-x", "80", "-y", "24"], {
+      timeout: 5000,
+    });
+
+    const probe = ptySpawn(TMUX, ["attach-session", "-t", PREFLIGHT_SESSION], {
       name: "xterm-256color",
       cols: 80,
       rows: 24,
@@ -45,6 +49,12 @@ function hasPtySupport(): boolean {
     return true;
   } catch {
     return false;
+  } finally {
+    try {
+      execFileSync(TMUX, ["kill-session", "-t", PREFLIGHT_SESSION], { timeout: 5000 });
+    } catch {
+      // best-effort cleanup
+    }
   }
 }
 
