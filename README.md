@@ -114,6 +114,18 @@ AO_REVIEWER_ID: reviewer-1
 AO_REVIEWER_VERDICT: APPROVE
 ```
 
+## Reviewer Agents
+
+Use `docs/reviewer-agent-prompt.md` as the standard reviewer-agent contract.
+
+Post machine-readable verdicts with:
+
+```bash
+export AO_REVIEWER_REPO=vivekgoquest/agent-orchestrator
+scripts/reviewer-agent-verdict <PR_NUMBER> APPROVE reviewer-alpha "No blockers."
+scripts/reviewer-agent-verdict <PR_NUMBER> REJECT reviewer-beta "BLOCKER: missing null guard in scheduler path."
+```
+
 See [`agent-orchestrator.yaml.example`](agent-orchestrator.yaml.example) for the full reference.
 
 ## CLI

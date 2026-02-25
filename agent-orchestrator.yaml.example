@@ -37,6 +37,10 @@ defaults:
 #     # Require reviewer-agent verdict gate workflow on PRs
 #     requireReviewerAgentGate: true
 #     minReviewerAgentApprovals: 2
+#
+# Reviewer agents should post comments containing:
+#   AO_REVIEWER_ID: reviewer-alpha
+#   AO_REVIEWER_VERDICT: APPROVE|REJECT
 
 # Projects — at minimum, specify repo and path
 projects:
