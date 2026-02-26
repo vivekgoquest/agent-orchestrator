@@ -35,11 +35,14 @@ export function statusColor(status: string): string {
       return chalk.yellow(status);
     case "pr_open":
     case "review_pending":
+    case "reviewer_pending":
       return chalk.blue(status);
+    case "reviewer_passed":
     case "approved":
     case "mergeable":
     case "merged":
       return chalk.green(status);
+    case "reviewer_failed":
     case "ci_failed":
     case "errored":
     case "stuck":

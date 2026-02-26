@@ -10,7 +10,8 @@
  * Reference: scripts/claude-session-status, scripts/claude-review-check
  */
 
-import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import {
   SESSION_STATUS,
@@ -46,14 +47,26 @@ import { parseWorkerEvidence, type WorkerEvidenceParseResult } from "./evidence.
 import type { OutcomeMetricsStore } from "./outcome-metrics.js";
 
 const VERIFIER_ROLE = "verifier";
+const REVIEWER_ROLE = "reviewer";
 const VERIFIER_STATUS = {
   PENDING: "pending",
   PASSED: "passed",
   FAILED: "failed",
 } as const;
+const REVIEWER_STATUS = {
+  PENDING: "pending",
+  PASSED: "passed",
+  FAILED: "failed",
+  ESCALATED: "escalated",
+} as const;
+const REVIEWER_ID_POOL = ["reviewer-alpha", "reviewer-beta", "reviewer-gamma"] as const;
 
 function isVerifierSession(session: Session): boolean {
   return (session.metadata?.["role"] ?? "").toLowerCase() === VERIFIER_ROLE;
+}
+
+function isReviewerSession(session: Session): boolean {
+  return (session.metadata?.["role"] ?? "").toLowerCase() === REVIEWER_ROLE;
 }
 
 function normalizeVerifierVerdict(value: string | undefined): "passed" | "failed" | null {
@@ -116,6 +129,102 @@ function buildVerifierFailureMessage(feedback: string): string {
     feedback,
     "",
     "Please address each item, update evidence artifacts, and continue implementation.",
+  ].join("\n");
+}
+
+function parsePositiveInt(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseReviewerSessionIds(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+function reviewerIdsForCount(count: number): string[] {
+  const bounded = Math.max(1, count);
+  const ids = [...REVIEWER_ID_POOL] as string[];
+  while (ids.length < bounded) {
+    ids.push(`reviewer-${ids.length + 1}`);
+  }
+  return ids.slice(0, bounded);
+}
+
+function hashText(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 16);
+}
+
+async function runExecFile(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return await new Promise((resolve, reject) => {
+    execFile(cmd, args, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve({
+        stdout: typeof stdout === "string" ? stdout : String(stdout),
+        stderr: typeof stderr === "string" ? stderr : String(stderr),
+      });
+    });
+  });
+}
+
+function buildReviewerPrompt(
+  worker: Session,
+  reviewerId: string,
+  cycle: number,
+  requireEvidence: boolean,
+): string {
+  const pr = worker.pr;
+  const ownerRepo = pr ? `${pr.owner}/${pr.repo}` : "<OWNER/REPO>";
+  const prNumber = pr?.number ? String(pr.number) : "<PR_NUMBER>";
+
+  return [
+    "You are an autonomous PR reviewer agent.",
+    `Reviewer ID: ${reviewerId}`,
+    `Cycle: ${cycle}`,
+    `Repository: ${ownerRepo}`,
+    `PR number: ${prNumber}`,
+    "",
+    "Goals:",
+    "1. Inspect changed files for correctness, edge cases, and regression risk.",
+    "2. Run targeted validation commands for touched areas.",
+    "3. Decide APPROVE or REJECT.",
+    "4. Publish a machine-readable verdict comment for the Reviewer Agent Gate.",
+    "",
+    "Required process:",
+    `- gh pr checkout ${prNumber} --repo ${ownerRepo}`,
+    `- gh pr view ${prNumber} --repo ${ownerRepo} --json title,body,files,commits,headRefName,baseRefName`,
+    "- Run at least one targeted test/validation command relevant to changed areas.",
+    "- If uncertain, REJECT with explicit blockers.",
+    "",
+    "Verdict command (required):",
+    `- AO_REVIEWER_REPO=${ownerRepo} AO_REVIEWER_CYCLE=${cycle} scripts/reviewer-agent-verdict ${prNumber} APPROVE ${reviewerId} "<summary with evidence>"`,
+    `- AO_REVIEWER_REPO=${ownerRepo} AO_REVIEWER_CYCLE=${cycle} scripts/reviewer-agent-verdict ${prNumber} REJECT ${reviewerId} "<blockers with evidence>"`,
+    requireEvidence
+      ? "- Include explicit evidence in your verdict summary (tests run + risk areas reviewed)."
+      : "- Include concise rationale in your verdict summary.",
+    "",
+    "After posting the verdict comment, update session metadata if helper is available:",
+    "- update_ao_metadata reviewerVerdict approve|reject",
+    "- update_ao_metadata reviewerFeedback \"<same summary>\"",
+  ].join("\n");
+}
+
+function buildReviewerFailureMessage(feedback: string): string {
+  return [
+    "Reviewer agents rejected this PR revision.",
+    "",
+    "Consolidated blocker summary:",
+    feedback,
+    "",
+    "Address all blockers, update tests/evidence, and continue.",
   ].join("\n");
 }
 
@@ -200,6 +309,12 @@ function statusToEventType(_from: SessionStatus | undefined, to: SessionStatus):
       return "verifier.failed";
     case "pr_ready":
       return "verifier.passed";
+    case "reviewer_pending":
+      return "reviewer.pending";
+    case "reviewer_failed":
+      return "reviewer.failed";
+    case "reviewer_passed":
+      return "reviewer.passed";
     case "pr_open":
       return "pr.created";
     case "ci_failed":
@@ -554,9 +669,119 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return merged && merged.action ? (merged as ReactionConfig) : null;
   }
 
+  function mergePolicy(): {
+    requireReviewerAgentGate: boolean;
+    minReviewerAgentApprovals: number;
+  } {
+    return {
+      requireReviewerAgentGate: config.policies?.merge?.requireReviewerAgentGate ?? true,
+      minReviewerAgentApprovals: Math.max(
+        1,
+        config.policies?.merge?.minReviewerAgentApprovals ?? 2,
+      ),
+    };
+  }
+
   function hasVerifierGate(project: _ProjectConfig): boolean {
     const verifier = project.verifier ?? config.defaults.verifier;
     return Boolean(verifier?.agent || verifier?.runtime);
+  }
+
+  function resolveReviewerRole(project: _ProjectConfig): { agent?: string; runtime?: string } {
+    return {
+      agent: project.reviewer?.agent ?? config.defaults.reviewer?.agent,
+      runtime: project.reviewer?.runtime ?? config.defaults.reviewer?.runtime,
+    };
+  }
+
+  function hasReviewerGate(project: _ProjectConfig): boolean {
+    const merge = mergePolicy();
+    if (!merge.requireReviewerAgentGate) return false;
+    const reviewerPolicy = config.policies?.reviewer;
+    if (reviewerPolicy?.enabled === false) return false;
+    const reviewer = resolveReviewerRole(project);
+    return Boolean(reviewer.agent || reviewer.runtime);
+  }
+
+  function reviewerPolicy(): {
+    enabled: boolean;
+    reviewerCount: number;
+    requiredApprovals: number;
+    maxCycles: number;
+    requireEvidence: boolean;
+    verdictChannel: "issue-comments";
+    notifyOnPass: boolean;
+  } {
+    const merge = mergePolicy();
+    const configuredCount = config.policies?.reviewer?.reviewerCount ?? 2;
+    const requiredApprovals = merge.requireReviewerAgentGate
+      ? merge.minReviewerAgentApprovals
+      : 0;
+    return {
+      enabled: config.policies?.reviewer?.enabled ?? true,
+      reviewerCount: Math.max(configuredCount, requiredApprovals || 1),
+      requiredApprovals,
+      maxCycles: config.policies?.reviewer?.maxCycles ?? 3,
+      requireEvidence: config.policies?.reviewer?.requireEvidence ?? true,
+      verdictChannel: "issue-comments",
+      notifyOnPass: config.policies?.reviewer?.notifyOnPass ?? true,
+    };
+  }
+
+  interface ReviewerVerdictComment {
+    reviewerId: string;
+    verdict: "approve" | "reject";
+    cycle: number | null;
+    summary: string;
+    evidence: string;
+    createdAt: string;
+  }
+
+  interface ReviewerVerdictQueryResult {
+    comments: ReviewerVerdictComment[];
+    fetchError: boolean;
+  }
+
+  async function listReviewerVerdictComments(
+    session: Session,
+  ): Promise<ReviewerVerdictQueryResult> {
+    const pr = session.pr;
+    if (!pr) return { comments: [], fetchError: false };
+    try {
+      const { stdout } = await runExecFile("gh", [
+        "api",
+        "-F",
+        "per_page=100",
+        `repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments`,
+      ]);
+      const parsed = JSON.parse(stdout) as Array<{ body?: string; created_at?: string }>;
+      const reviewerRegex = /AO_REVIEWER_ID\s*:\s*([^\n\r]+)/i;
+      const verdictRegex = /AO_REVIEWER_VERDICT\s*:\s*(APPROVE|REJECT)/i;
+      const cycleRegex = /AO_REVIEWER_CYCLE\s*:\s*(\d+)/i;
+      const evidenceRegex = /AO_REVIEWER_EVIDENCE\s*:\s*([^\n\r]+)/i;
+      const markerRegex = /^AO_REVIEWER_[A-Z_]+\s*:\s*.*$/gim;
+      const results: ReviewerVerdictComment[] = [];
+      for (const comment of parsed) {
+        const body = comment.body ?? "";
+        const reviewerMatch = body.match(reviewerRegex);
+        const verdictMatch = body.match(verdictRegex);
+        if (!reviewerMatch || !verdictMatch) continue;
+        const cycleMatch = body.match(cycleRegex);
+        const evidenceMatch = body.match(evidenceRegex);
+        const summary = body.replace(markerRegex, "").trim();
+        results.push({
+          reviewerId: reviewerMatch[1].trim(),
+          verdict: verdictMatch[1].toUpperCase() === "APPROVE" ? "approve" : "reject",
+          cycle: cycleMatch ? Number.parseInt(cycleMatch[1], 10) : null,
+          summary,
+          evidence: evidenceMatch?.[1]?.trim() ?? "",
+          createdAt: comment.created_at ?? "",
+        });
+      }
+      return { comments: results, fetchError: false };
+    } catch {
+      return { comments: [], fetchError: true };
+    }
   }
 
   function evidenceFingerprint(evidence: WorkerEvidenceParseResult): string {
@@ -708,10 +933,305 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
   }
 
+  async function resolveReviewerGateStatus(
+    session: Session,
+    project: _ProjectConfig,
+    evidence: WorkerEvidenceParseResult | null,
+  ): Promise<SessionStatus | null> {
+    if (isVerifierSession(session) || isReviewerSession(session)) return null;
+    if (!session.pr) return null;
+    if (!hasReviewerGate(project)) return null;
+
+    const policy = reviewerPolicy();
+    if (!policy.enabled) return null;
+
+    const sessionsDir = getSessionsDir(config.configPath, project.path);
+    const reviewerRole = resolveReviewerRole(project);
+    const reviewerIds = reviewerIdsForCount(policy.reviewerCount);
+    const evidenceToken = evidence ? evidenceFingerprint(evidence) : "no-evidence";
+
+    const status = session.metadata["reviewerStatus"]?.trim().toLowerCase() ?? "";
+    const currentCycle = parsePositiveInt(session.metadata["reviewerCycle"]) ?? 1;
+    const verdictFetchFailures = parsePositiveInt(
+      session.metadata["reviewerVerdictFetchFailures"],
+    ) ?? 0;
+    const failedToken = session.metadata["reviewerFailedEvidenceToken"];
+    const passedToken = session.metadata["reviewerEvidenceToken"];
+
+    const reviewerSessionIds = parseReviewerSessionIds(session.metadata["reviewerSessionIds"]);
+    const reviewerSessions = await Promise.all(
+      reviewerSessionIds.map((id) => sessionManager.get(id).catch(() => null)),
+    );
+    const terminalStatuses = new Set<SessionStatus>([
+      SESSION_STATUS.MERGED,
+      SESSION_STATUS.KILLED,
+      SESSION_STATUS.CLEANUP,
+      SESSION_STATUS.DONE,
+      SESSION_STATUS.TERMINATED,
+      SESSION_STATUS.ERRORED,
+    ]);
+    const hasActiveReviewerSessions = reviewerSessions.some(
+      (reviewerSession) => reviewerSession && !terminalStatuses.has(reviewerSession.status),
+    );
+    const allReviewerSessionsTerminal =
+      reviewerSessions.length > 0 &&
+      reviewerSessions.every(
+        (reviewerSession) => !reviewerSession || terminalStatuses.has(reviewerSession.status),
+      );
+
+    const verdictQuery = await listReviewerVerdictComments(session);
+    const allVerdicts = verdictQuery.comments;
+    const cycleVerdicts = allVerdicts.filter(
+      (verdict) => verdict.cycle === currentCycle || (verdict.cycle === null && currentCycle === 1),
+    );
+    const latestVerdictByReviewer = new Map<string, ReviewerVerdictComment>();
+    for (const verdict of cycleVerdicts) {
+      const existing = latestVerdictByReviewer.get(verdict.reviewerId);
+      if (!existing || verdict.createdAt > existing.createdAt) {
+        latestVerdictByReviewer.set(verdict.reviewerId, verdict);
+      }
+    }
+
+    const rejectFindings: string[] = [];
+    const approvalSummaries: string[] = [];
+    let approvalCount = 0;
+    for (const reviewerId of reviewerIds) {
+      const verdict = latestVerdictByReviewer.get(reviewerId);
+      if (!verdict) continue;
+      const hasEvidence =
+        !policy.requireEvidence ||
+        verdict.evidence.length > 0 ||
+        /test|spec|ci|lint|typecheck|integration/i.test(verdict.summary);
+      if (verdict.verdict === "reject") {
+        rejectFindings.push(`[${reviewerId}] ${verdict.summary || "Rejected without details."}`);
+        continue;
+      }
+      if (!hasEvidence) {
+        rejectFindings.push(
+          `[${reviewerId}] Approved without required evidence (include tests/risk notes).`,
+        );
+        continue;
+      }
+      approvalCount += 1;
+      approvalSummaries.push(`[${reviewerId}] ${verdict.summary || "Approved."}`);
+    }
+
+    if (
+      !verdictQuery.fetchError &&
+      rejectFindings.length === 0 &&
+      reviewerSessionIds.length > 0 &&
+      allReviewerSessionsTerminal &&
+      approvalCount < policy.requiredApprovals
+    ) {
+      rejectFindings.push("Reviewer sessions exited without posting required verdict comments.");
+    }
+
+    if (
+      verdictQuery.fetchError &&
+      (reviewerSessionIds.length > 0 || status === REVIEWER_STATUS.PENDING)
+    ) {
+      const nextFetchFailureCount = verdictFetchFailures + 1;
+      const fetchFailureLimit = Math.max(2, policy.maxCycles);
+      if (nextFetchFailureCount >= fetchFailureLimit) {
+        const escalationToken = hashText(
+          `${session.id}:${currentCycle}:reviewer-fetch:${nextFetchFailureCount}`,
+        );
+        const escalationMessage =
+          `Unable to fetch reviewer verdict comments after ${nextFetchFailureCount} attempt(s). ` +
+          "Escalating to human for intervention.";
+        if (session.metadata["reviewerFetchEscalationToken"] !== escalationToken) {
+          const event = createEvent("reviewer.failed", {
+            sessionId: session.id,
+            projectId: session.projectId,
+            message: escalationMessage,
+            data: { cycle: currentCycle, fetchFailures: nextFetchFailureCount },
+          });
+          await notifyHuman(event, "urgent");
+        }
+        updateMetadata(sessionsDir, session.id, {
+          reviewerStatus: REVIEWER_STATUS.ESCALATED,
+          reviewerFeedback: escalationMessage,
+          reviewerSessionIds: "",
+          reviewerLastSummary: escalationMessage,
+          reviewerVerdictFetchFailures: String(nextFetchFailureCount),
+          reviewerFetchEscalationToken: escalationToken,
+        });
+        return SESSION_STATUS.REVIEWER_FAILED;
+      }
+      updateMetadata(sessionsDir, session.id, {
+        reviewerStatus: REVIEWER_STATUS.PENDING,
+        reviewerFeedback:
+          `Unable to fetch reviewer verdict comments (attempt ${nextFetchFailureCount}/${fetchFailureLimit}); ` +
+          "retrying automatically.",
+        reviewerVerdictFetchFailures: String(nextFetchFailureCount),
+      });
+      return SESSION_STATUS.REVIEWER_PENDING;
+    }
+
+    if (verdictFetchFailures > 0 || session.metadata["reviewerFetchEscalationToken"]) {
+      updateMetadata(sessionsDir, session.id, {
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
+      });
+    }
+
+    if (rejectFindings.length > 0) {
+      const consolidatedFeedback = rejectFindings.join("\n");
+      const rejectToken = hashText(`${currentCycle}:${evidenceToken}:${consolidatedFeedback}`);
+
+      if (currentCycle >= policy.maxCycles) {
+        if (session.metadata["reviewerEscalationToken"] !== rejectToken) {
+          const event = createEvent("reviewer.failed", {
+            sessionId: session.id,
+            projectId: session.projectId,
+            message: `Reviewer loop escalated after ${currentCycle} cycle(s): ${consolidatedFeedback}`,
+            data: { cycle: currentCycle, reviewerCount: reviewerIds.length },
+          });
+          await notifyHuman(event, "urgent");
+        }
+        updateMetadata(sessionsDir, session.id, {
+          reviewerStatus: REVIEWER_STATUS.ESCALATED,
+          reviewerFeedback: consolidatedFeedback,
+          reviewerSessionIds: "",
+          reviewerFailedEvidenceToken: evidenceToken,
+          reviewerFailureSentFor: rejectToken,
+          reviewerLastSummary: consolidatedFeedback,
+          reviewerEscalationToken: rejectToken,
+          reviewerVerdictFetchFailures: "",
+          reviewerFetchEscalationToken: "",
+        });
+        return SESSION_STATUS.REVIEWER_FAILED;
+      }
+
+      if (session.metadata["reviewerFailureSentFor"] !== rejectToken) {
+        await sessionManager.send(session.id, buildReviewerFailureMessage(consolidatedFeedback));
+      }
+
+      updateMetadata(sessionsDir, session.id, {
+        reviewerStatus: REVIEWER_STATUS.FAILED,
+        reviewerFeedback: consolidatedFeedback,
+        reviewerSessionIds: "",
+        reviewerFailedEvidenceToken: evidenceToken,
+        reviewerFailureSentFor: rejectToken,
+        reviewerLastSummary: consolidatedFeedback,
+        reviewerCycle: String(currentCycle + 1),
+        reviewerEscalationToken: "",
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
+      });
+      return SESSION_STATUS.REVIEWER_FAILED;
+    }
+
+    if (approvalCount >= policy.requiredApprovals) {
+      const summary =
+        approvalSummaries.join("\n") ||
+        `Received ${approvalCount} reviewer approval verdict(s).`;
+      updateMetadata(sessionsDir, session.id, {
+        reviewerStatus: REVIEWER_STATUS.PASSED,
+        reviewerFeedback: summary,
+        reviewerSessionIds: "",
+        reviewerFailedEvidenceToken: "",
+        reviewerEvidenceToken: evidenceToken,
+        reviewerLastSummary: summary,
+        reviewerEscalationToken: "",
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
+      });
+      return SESSION_STATUS.REVIEWER_PASSED;
+    }
+
+    if (
+      (status === REVIEWER_STATUS.FAILED || status === REVIEWER_STATUS.ESCALATED) &&
+      failedToken &&
+      failedToken === evidenceToken &&
+      !hasActiveReviewerSessions
+    ) {
+      return SESSION_STATUS.REVIEWER_FAILED;
+    }
+
+    if (status === REVIEWER_STATUS.PASSED && passedToken && passedToken === evidenceToken) {
+      return SESSION_STATUS.REVIEWER_PASSED;
+    }
+
+    let spawnCycle = currentCycle;
+    if (status === REVIEWER_STATUS.PASSED && passedToken && passedToken !== evidenceToken) {
+      spawnCycle = currentCycle + 1;
+    }
+    if (
+      (status === REVIEWER_STATUS.FAILED || status === REVIEWER_STATUS.ESCALATED) &&
+      failedToken &&
+      failedToken !== evidenceToken
+    ) {
+      spawnCycle = currentCycle;
+    }
+
+    if (hasActiveReviewerSessions) {
+      return SESSION_STATUS.REVIEWER_PENDING;
+    }
+
+    if (spawnCycle > policy.maxCycles) {
+      updateMetadata(sessionsDir, session.id, {
+        reviewerStatus: REVIEWER_STATUS.ESCALATED,
+        reviewerFeedback: `Reached reviewer cycle limit (${policy.maxCycles}).`,
+      });
+      return SESSION_STATUS.REVIEWER_FAILED;
+    }
+
+    try {
+      const spawnedSessionIds: string[] = [];
+      for (const reviewerId of reviewerIds) {
+        const reviewerSession = await sessionManager.spawn({
+          projectId: session.projectId,
+          issueId: session.issueId ?? undefined,
+          branch: session.branch ?? undefined,
+          prompt: buildReviewerPrompt(session, reviewerId, spawnCycle, policy.requireEvidence),
+          agent: reviewerRole.agent,
+          runtime: reviewerRole.runtime,
+        });
+        spawnedSessionIds.push(reviewerSession.id);
+
+        updateMetadata(sessionsDir, reviewerSession.id, {
+          role: REVIEWER_ROLE,
+          reviewerFor: session.id,
+          reviewerStatus: REVIEWER_STATUS.PENDING,
+          reviewerId,
+          reviewerCycle: String(spawnCycle),
+        });
+      }
+
+      updateMetadata(sessionsDir, session.id, {
+        reviewerStatus: REVIEWER_STATUS.PENDING,
+        reviewerSessionIds: spawnedSessionIds.join(","),
+        reviewerCycle: String(spawnCycle),
+        reviewerEvidenceToken: evidenceToken,
+        reviewerFailedEvidenceToken: "",
+        reviewerFailureSentFor: "",
+        reviewerFeedback: "",
+        reviewerLastSummary: "",
+        reviewerEscalationToken: "",
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
+      });
+
+      return SESSION_STATUS.REVIEWER_PENDING;
+    } catch {
+      updateMetadata(sessionsDir, session.id, {
+        reviewerStatus: REVIEWER_STATUS.FAILED,
+        reviewerFeedback:
+          "Unable to spawn reviewer sessions automatically. Check reviewer runtime/agent plugin health.",
+        reviewerFailedEvidenceToken: evidenceToken,
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
+      });
+      return SESSION_STATUS.REVIEWER_FAILED;
+    }
+  }
+
   /** Determine current status for a session by polling plugins. */
   async function determineStatus(session: Session): Promise<SessionStatus> {
     const project = config.projects[session.projectId];
     if (!project) return session.status;
+    const roleSession = isVerifierSession(session) || isReviewerSession(session);
 
     const agentName = session.metadata["agent"] ?? project.agent ?? config.defaults.agent;
     const agent = registry.get<Agent>("agent", agentName);
@@ -727,7 +1247,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // 2. Parse worker evidence and gate PR readiness behind verifier pass.
-    if (!isVerifierSession(session) && !session.pr && session.workspacePath) {
+    if (!isVerifierSession(session) && !isReviewerSession(session) && !session.pr && session.workspacePath) {
       const evidence = parseWorkerEvidence({
         sessionId: session.id,
         workspacePath: session.workspacePath,
@@ -786,7 +1306,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     // 4. Auto-detect PR by branch if metadata.pr is missing.
     //    This is critical for agents without auto-hook systems (Codex, Aider,
     //    OpenCode) that can't reliably write pr=<url> to metadata on their own.
-    if (!session.pr && scm && session.branch) {
+    if (!roleSession && !session.pr && scm && session.branch) {
       try {
         const detectedPR = await scm.detectPR(session, project);
         if (detectedPR) {
@@ -803,7 +1323,7 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     // 5. Check PR state if PR exists
-    if (session.pr && scm) {
+    if (!roleSession && session.pr && scm) {
       try {
         const prState = await scm.getPRState(session.pr);
         if (prState === PR_STATE.MERGED) return "merged";
@@ -812,6 +1332,23 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         // Check CI
         const ciStatus = await scm.getCISummary(session.pr);
         if (ciStatus === CI_STATUS.FAILING) return "ci_failed";
+
+        const reviewerEvidence =
+          !isVerifierSession(session) && !isReviewerSession(session) && session.workspacePath
+            ? parseWorkerEvidence({
+                sessionId: session.id,
+                workspacePath: session.workspacePath,
+                metadata: session.metadata ?? {},
+              })
+            : null;
+        const reviewerStatus = await resolveReviewerGateStatus(session, project, reviewerEvidence);
+        if (reviewerStatus === SESSION_STATUS.REVIEWER_PENDING) return reviewerStatus;
+        if (reviewerStatus === SESSION_STATUS.REVIEWER_FAILED) return reviewerStatus;
+        const reviewerPassed =
+          reviewerStatus === SESSION_STATUS.REVIEWER_PASSED ||
+          !hasReviewerGate(project) ||
+          isVerifierSession(session) ||
+          isReviewerSession(session);
 
         // Check reviews
         const reviewDecision = await scm.getReviewDecision(session.pr);
@@ -824,11 +1361,22 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
               !hasVerifierGate(project) ||
               isVerifierSession(session) ||
               session.metadata["verifierStatus"]?.trim().toLowerCase() === VERIFIER_STATUS.PASSED;
-            if (!verifierPassed) return SESSION_STATUS.APPROVED;
+            if (!verifierPassed || !reviewerPassed) return SESSION_STATUS.APPROVED;
             return "mergeable";
           }
           return "approved";
         }
+
+        if (reviewerPassed) {
+          const mergeReady = await scm.getMergeability(session.pr);
+          const verifierPassed =
+            !hasVerifierGate(project) ||
+            isVerifierSession(session) ||
+            session.metadata["verifierStatus"]?.trim().toLowerCase() === VERIFIER_STATUS.PASSED;
+          if (mergeReady.mergeable && verifierPassed) return "mergeable";
+          return "approved";
+        }
+
         if (reviewDecision === "pending") return "review_pending";
 
         return "pr_open";

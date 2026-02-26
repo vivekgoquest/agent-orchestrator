@@ -558,6 +558,119 @@ describe("Config Verifier Role Settings", () => {
   });
 });
 
+describe("Config Reviewer Role Settings", () => {
+  it("applies reviewer policy defaults", () => {
+    const config = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.policies?.reviewer).toEqual({
+      enabled: true,
+      reviewerCount: 2,
+      maxCycles: 3,
+      requireEvidence: true,
+      verdictChannel: "issue-comments",
+      notifyOnPass: true,
+    });
+  });
+
+  it("does not auto-enable reviewer role defaults when reviewer is not configured", () => {
+    const config = {
+      defaults: {
+        runtime: "tmux",
+        agent: "codex",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.defaults.reviewer).toBeUndefined();
+    expect(validated.projects.proj1.reviewer).toBeUndefined();
+  });
+
+  it("supports dedicated reviewer defaults and project overrides", () => {
+    const config = {
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+        reviewer: {
+          runtime: "process",
+          agent: "codex",
+        },
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          reviewer: {
+            runtime: "tmux",
+          },
+        },
+      },
+    };
+
+    const validated = validateConfig(config);
+    expect(validated.defaults.reviewer).toEqual({
+      runtime: "process",
+      agent: "codex",
+    });
+    expect(validated.projects.proj1.reviewer).toEqual({
+      runtime: "tmux",
+      agent: "codex",
+    });
+  });
+
+  it("rejects empty reviewer role blocks", () => {
+    const defaultsConfig = {
+      defaults: {
+        runtime: "tmux",
+        agent: "claude-code",
+        workspace: "worktree",
+        notifiers: ["desktop"],
+        reviewer: {},
+      },
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+        },
+      },
+    };
+    const projectConfig = {
+      projects: {
+        proj1: {
+          path: "/repos/test",
+          repo: "org/test",
+          defaultBranch: "main",
+          reviewer: {},
+        },
+      },
+    };
+
+    expect(() => validateConfig(defaultsConfig)).toThrow();
+    expect(() => validateConfig(projectConfig)).toThrow();
+  });
+});
+
 describe("Config Verifier Role Settings", () => {
   it("defaults verifier role to main runtime and agent", () => {
     const config = {

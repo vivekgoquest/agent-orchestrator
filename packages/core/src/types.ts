@@ -28,6 +28,9 @@ export type SessionStatus =
   | "working"
   | "verifier_pending"
   | "verifier_failed"
+  | "reviewer_pending"
+  | "reviewer_failed"
+  | "reviewer_passed"
   | "pr_ready"
   | "pr_open"
   | "ci_failed"
@@ -79,6 +82,9 @@ export const SESSION_STATUS = {
   WORKING: "working" as const,
   VERIFIER_PENDING: "verifier_pending" as const,
   VERIFIER_FAILED: "verifier_failed" as const,
+  REVIEWER_PENDING: "reviewer_pending" as const,
+  REVIEWER_FAILED: "reviewer_failed" as const,
+  REVIEWER_PASSED: "reviewer_passed" as const,
   PR_READY: "pr_ready" as const,
   PR_OPEN: "pr_open" as const,
   CI_FAILED: "ci_failed" as const,
@@ -767,6 +773,10 @@ export type EventType =
   | "verifier.pending"
   | "verifier.failed"
   | "verifier.passed"
+  // Reviewer lifecycle
+  | "reviewer.pending"
+  | "reviewer.failed"
+  | "reviewer.passed"
   // PR lifecycle
   | "pr.created"
   | "pr.updated"
@@ -953,6 +963,8 @@ export interface DefaultPlugins {
   notifiers: string[];
   /** Optional verifier role defaults (reserved for verifier workflows). */
   verifier?: VerifierRoleConfig;
+  /** Optional reviewer role defaults (agent/runtime) for autonomous PR review. */
+  reviewer?: ReviewerRoleConfig;
 }
 
 /** Verifier role plugin selection (agent/runtime). */
@@ -960,6 +972,14 @@ export interface VerifierRoleConfig {
   /** Runtime plugin name for verifier sessions. */
   runtime?: string;
   /** Agent plugin name for verifier sessions. */
+  agent?: string;
+}
+
+/** Reviewer role plugin selection (agent/runtime). */
+export interface ReviewerRoleConfig {
+  /** Runtime plugin name for reviewer sessions. */
+  runtime?: string;
+  /** Agent plugin name for reviewer sessions. */
   agent?: string;
 }
 
@@ -977,9 +997,25 @@ export interface MergePolicyConfig {
   minReviewerAgentApprovals: number;
 }
 
+export interface ReviewerPolicyConfig {
+  /** Enables autonomous reviewer session spawning for PRs. */
+  enabled: boolean;
+  /** Number of reviewer sessions to spawn per review cycle. */
+  reviewerCount: number;
+  /** Max reviewer reject->retry cycles before human escalation. */
+  maxCycles: number;
+  /** Require reviewers to include explicit evidence in verdict comments. */
+  requireEvidence: boolean;
+  /** Channel used for reviewer verdict publication. */
+  verdictChannel: "issue-comments";
+  /** Notify humans when reviewer + CI gates pass and PR is merge ready. */
+  notifyOnPass: boolean;
+}
+
 export interface PolicyConfig {
   spawn: SpawnPolicyConfig;
   merge?: MergePolicyConfig;
+  reviewer?: ReviewerPolicyConfig;
 }
 
 export interface ProjectConfig {
@@ -1024,6 +1060,9 @@ export interface ProjectConfig {
 
   /** Verifier role overrides (agent/runtime) for this project. */
   verifier?: VerifierRoleConfig;
+
+  /** Reviewer role overrides (agent/runtime) for this project. */
+  reviewer?: ReviewerRoleConfig;
 
   /** Per-project reaction overrides */
   reactions?: Record<string, Partial<ReactionConfig>>;
@@ -1204,6 +1243,19 @@ export interface SessionMetadata {
   verifierStatus?: string;
   verifierVerdict?: string;
   verifierFeedback?: string;
+  reviewerFor?: string;
+  reviewerSessionIds?: string;
+  reviewerStatus?: string;
+  reviewerVerdict?: string;
+  reviewerFeedback?: string;
+  reviewerId?: string;
+  reviewerCycle?: string;
+  reviewerEvidenceToken?: string;
+  reviewerFailedEvidenceToken?: string;
+  reviewerFailureSentFor?: string;
+  reviewerLastSummary?: string;
+  reviewerVerdictFetchFailures?: string;
+  reviewerFetchEscalationToken?: string;
 }
 
 /** Plan lifecycle status for orchestrator planning artifacts. */

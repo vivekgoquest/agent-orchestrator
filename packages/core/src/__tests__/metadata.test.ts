@@ -158,6 +158,18 @@ describe("readMetadataRaw", () => {
     const raw = readMetadataRaw(dataDir, "raw-3");
     expect(raw!["runtimeHandle"]).toBe('{"id":"foo","data":{"key":"val"}}');
   });
+
+  it("round-trips multiline values via encoded storage", () => {
+    writeMetadata(dataDir, "raw-4", {
+      worktree: "/tmp/w",
+      branch: "main",
+      status: "reviewer_failed",
+      reviewerFeedback: "line one\nline two\nline three",
+    });
+
+    const raw = readMetadataRaw(dataDir, "raw-4");
+    expect(raw?.reviewerFeedback).toBe("line one\nline two\nline three");
+  });
 });
 
 describe("updateMetadata", () => {

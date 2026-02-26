@@ -15,15 +15,54 @@ jobs:
     name: Reviewer Agent Gate
     runs-on: ubuntu-latest
     env:
-      AO_REVIEWER_MIN_APPROVALS: "2"
       AO_REVIEWER_OVERRIDE_LABEL: "reviewer-gate-override"
+      AO_REVIEWER_REQUIRE_EVIDENCE: "true"
+      AO_REVIEWER_CONFIG_PATH: "agent-orchestrator.yaml"
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Validate reviewer-agent verdicts
         uses: actions/github-script@v7
         with:
           script: |
-            const minApprovals = Number(process.env.AO_REVIEWER_MIN_APPROVALS ?? "2");
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const parseIntOr = (value, fallback) => {
+              const parsed = Number(value);
+              return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+            };
+            const readMergePolicy = () => {
+              const explicit = process.env.AO_REVIEWER_MIN_APPROVALS;
+              if (explicit) return { minApprovals: parseIntOr(explicit, 2), gateRequired: true };
+
+              const preferred = process.env.AO_REVIEWER_CONFIG_PATH;
+              const candidates = [
+                preferred,
+                "agent-orchestrator.yaml",
+                "agent-orchestrator.yml",
+                "ao.config.yaml",
+                "ao.config.yml",
+              ].filter(Boolean);
+
+              for (const candidate of candidates) {
+                const configPath = path.resolve(process.env.GITHUB_WORKSPACE || ".", candidate);
+                if (!fs.existsSync(configPath)) continue;
+                const content = fs.readFileSync(configPath, "utf8");
+                const gateMatch = content.match(/^\s*requireReviewerAgentGate\s*:\s*(true|false)\s*$/im);
+                const approvalsMatch = content.match(/^\s*minReviewerAgentApprovals\s*:\s*(\d+)\s*$/im);
+                const gateRequired = gateMatch ? gateMatch[1].toLowerCase() !== "false" : true;
+                const minApprovals = approvalsMatch ? parseIntOr(approvalsMatch[1], 2) : 2;
+                return { minApprovals, gateRequired };
+              }
+
+              return { minApprovals: 2, gateRequired: true };
+            };
+
+            const policy = readMergePolicy();
+            const minApprovals = policy.minApprovals;
             const overrideLabel = process.env.AO_REVIEWER_OVERRIDE_LABEL ?? "reviewer-gate-override";
+            const requireEvidence = (process.env.AO_REVIEWER_REQUIRE_EVIDENCE ?? "true").toLowerCase() !== "false";
             const pr = context.payload.pull_request;
             if (!pr) {
               core.setFailed("Reviewer Agent Gate only supports pull_request events.");
@@ -35,9 +74,15 @@ jobs:
               core.notice(`Bypassed by label '${overrideLabel}'.`);
               return;
             }
+            if (!policy.gateRequired) {
+              core.notice("Reviewer agent gate disabled by merge policy (requireReviewerAgentGate=false).");
+              return;
+            }
 
             const verdictRegex = /AO_REVIEWER_VERDICT\s*:\s*(APPROVE|REJECT)/i;
             const reviewerRegex = /AO_REVIEWER_ID\s*:\s*([^\n\r]+)/i;
+            const cycleRegex = /AO_REVIEWER_CYCLE\s*:\s*(\d+)/i;
+            const evidenceRegex = /AO_REVIEWER_EVIDENCE\s*:\s*([^\n\r]+)/i;
 
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner: context.repo.owner,
@@ -46,8 +91,17 @@ jobs:
               per_page: 100,
             });
 
-            const approvals = new Set();
-            const rejections = new Set();
+            let latestCycle = 1;
+            for (const comment of comments) {
+              const body = comment.body ?? "";
+              const verdictMatch = body.match(verdictRegex);
+              if (!verdictMatch) continue;
+              const cycleMatch = body.match(cycleRegex);
+              const cycle = cycleMatch ? Number(cycleMatch[1]) : 1;
+              if (Number.isFinite(cycle) && cycle > latestCycle) latestCycle = cycle;
+            }
+
+            const latestByReviewer = new Map();
 
             for (const comment of comments) {
               const body = comment.body ?? "";
@@ -57,15 +111,41 @@ jobs:
               const reviewerMatch = body.match(reviewerRegex);
               const reviewerId = (reviewerMatch?.[1]?.trim() || `${comment.user?.login ?? "unknown"}#${comment.id}`);
               const verdict = verdictMatch[1].toUpperCase();
+              const cycleMatch = body.match(cycleRegex);
+              const cycle = cycleMatch ? Number(cycleMatch[1]) : 1;
+              if (cycle !== latestCycle) continue;
+              const evidence = (body.match(evidenceRegex)?.[1] ?? "").trim();
+              const summary = body
+                .replace(/^AO_REVIEWER_[A-Z_]+\s*:\s*.*$/gim, "")
+                .trim();
+              const evidenceOk = !requireEvidence || evidence.length > 0 || /test|spec|ci|lint|typecheck|integration/i.test(summary);
+              const createdAt = new Date(comment.created_at ?? 0).getTime();
+              const existing = latestByReviewer.get(reviewerId);
+              if (!existing || createdAt >= existing.createdAt) {
+                latestByReviewer.set(reviewerId, { verdict, evidenceOk, createdAt });
+              }
+            }
 
-              if (verdict === "APPROVE") approvals.add(reviewerId);
-              if (verdict === "REJECT") rejections.add(reviewerId);
+            const approvals = new Set();
+            const rejections = new Set();
+            const missingEvidence = new Set();
+            for (const [reviewerId, result] of latestByReviewer.entries()) {
+              if (result.verdict === "REJECT") rejections.add(reviewerId);
+              if (result.verdict === "APPROVE") {
+                approvals.add(reviewerId);
+                if (!result.evidenceOk) missingEvidence.add(reviewerId);
+              }
             }
 
             core.info(`Reviewer approvals=${approvals.size}, rejections=${rejections.size}`);
 
             if (rejections.size > 0) {
               core.setFailed(`Reviewer agent rejection(s) present: ${Array.from(rejections).join(", ")}`);
+              return;
+            }
+
+            if (missingEvidence.size > 0) {
+              core.setFailed(`Reviewer approval(s) missing required evidence: ${Array.from(missingEvidence).join(", ")}`);
               return;
             }
 
@@ -77,4 +157,4 @@ jobs:
               return;
             }
 
-            core.notice(`Reviewer agent gate passed with ${approvals.size} approval verdict(s).`);
+            core.notice(`Reviewer agent gate passed with ${approvals.size} approval verdict(s) in cycle ${latestCycle}.`);
