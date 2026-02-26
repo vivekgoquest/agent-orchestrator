@@ -205,8 +205,8 @@ function buildReviewerPrompt(
     "- If uncertain, REJECT with explicit blockers.",
     "",
     "Verdict command (required):",
-    `- AO_REVIEWER_REPO=${ownerRepo} AO_REVIEWER_CYCLE=${cycle} scripts/reviewer-agent-verdict ${prNumber} APPROVE ${reviewerId} \"<summary with evidence>\"`,
-    `- AO_REVIEWER_REPO=${ownerRepo} AO_REVIEWER_CYCLE=${cycle} scripts/reviewer-agent-verdict ${prNumber} REJECT ${reviewerId} \"<blockers with evidence>\"`,
+    `- AO_REVIEWER_REPO=${ownerRepo} AO_REVIEWER_CYCLE=${cycle} scripts/reviewer-agent-verdict ${prNumber} APPROVE ${reviewerId} "<summary with evidence>"`,
+    `- AO_REVIEWER_REPO=${ownerRepo} AO_REVIEWER_CYCLE=${cycle} scripts/reviewer-agent-verdict ${prNumber} REJECT ${reviewerId} "<blockers with evidence>"`,
     requireEvidence
       ? "- Include explicit evidence in your verdict summary (tests run + risk areas reviewed)."
       : "- Include concise rationale in your verdict summary.",
