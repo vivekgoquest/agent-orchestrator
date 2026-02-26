@@ -40,6 +40,25 @@ import type {
   PlanStatus,
 } from "./types.js";
 
+const MULTILINE_VALUE_PREFIX = "__AO_B64__:";
+
+function encodeMetadataValue(value: string): string {
+  if (!value.includes("\n") && !value.includes("\r")) return value;
+  return `${MULTILINE_VALUE_PREFIX}${Buffer.from(value, "utf-8").toString("base64")}`;
+}
+
+function decodeMetadataValue(value: string): string {
+  if (!value.startsWith(MULTILINE_VALUE_PREFIX)) return value;
+  const payload = value.slice(MULTILINE_VALUE_PREFIX.length);
+  if (!payload) return "";
+  try {
+    return Buffer.from(payload, "base64").toString("utf-8");
+  } catch {
+    // Preserve raw value if decoding fails (forward-compatible with unknown prefixes)
+    return value;
+  }
+}
+
 /**
  * Parse a key=value metadata file into a record.
  * Lines starting with # are comments. Empty lines are skipped.
@@ -53,7 +72,7 @@ function parseMetadataFile(content: string): Record<string, string> {
     const eqIndex = trimmed.indexOf("=");
     if (eqIndex === -1) continue;
     const key = trimmed.slice(0, eqIndex).trim();
-    const value = trimmed.slice(eqIndex + 1).trim();
+    const value = decodeMetadataValue(trimmed.slice(eqIndex + 1).trim());
     if (key) result[key] = value;
   }
   return result;
@@ -64,7 +83,7 @@ function serializeMetadata(data: Record<string, string>): string {
   return (
     Object.entries(data)
       .filter(([, v]) => v !== undefined && v !== "")
-      .map(([k, v]) => `${k}=${v}`)
+      .map(([k, v]) => `${k}=${encodeMetadataValue(v)}`)
       .join("\n") + "\n"
   );
 }
@@ -260,6 +279,8 @@ export function readMetadata(dataDir: string, sessionId: SessionId): SessionMeta
     reviewerFailedEvidenceToken: raw["reviewerFailedEvidenceToken"],
     reviewerFailureSentFor: raw["reviewerFailureSentFor"],
     reviewerLastSummary: raw["reviewerLastSummary"],
+    reviewerVerdictFetchFailures: raw["reviewerVerdictFetchFailures"],
+    reviewerFetchEscalationToken: raw["reviewerFetchEscalationToken"],
   };
 }
 
@@ -344,6 +365,10 @@ export function writeMetadata(
   if (metadata.reviewerFailureSentFor)
     data["reviewerFailureSentFor"] = metadata.reviewerFailureSentFor;
   if (metadata.reviewerLastSummary) data["reviewerLastSummary"] = metadata.reviewerLastSummary;
+  if (metadata.reviewerVerdictFetchFailures)
+    data["reviewerVerdictFetchFailures"] = metadata.reviewerVerdictFetchFailures;
+  if (metadata.reviewerFetchEscalationToken)
+    data["reviewerFetchEscalationToken"] = metadata.reviewerFetchEscalationToken;
 
   writeFileSync(path, serializeMetadata(data), "utf-8");
 }

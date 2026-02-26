@@ -952,6 +952,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
 
     const status = session.metadata["reviewerStatus"]?.trim().toLowerCase() ?? "";
     const currentCycle = parsePositiveInt(session.metadata["reviewerCycle"]) ?? 1;
+    const verdictFetchFailures = parsePositiveInt(
+      session.metadata["reviewerVerdictFetchFailures"],
+    ) ?? 0;
     const failedToken = session.metadata["reviewerFailedEvidenceToken"];
     const passedToken = session.metadata["reviewerEvidenceToken"];
 
@@ -1023,12 +1026,53 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       rejectFindings.push("Reviewer sessions exited without posting required verdict comments.");
     }
 
-    if (verdictQuery.fetchError && (reviewerSessionIds.length > 0 || status === REVIEWER_STATUS.PENDING)) {
+    if (
+      verdictQuery.fetchError &&
+      (reviewerSessionIds.length > 0 || status === REVIEWER_STATUS.PENDING)
+    ) {
+      const nextFetchFailureCount = verdictFetchFailures + 1;
+      const fetchFailureLimit = Math.max(2, policy.maxCycles);
+      if (nextFetchFailureCount >= fetchFailureLimit) {
+        const escalationToken = hashText(
+          `${session.id}:${currentCycle}:reviewer-fetch:${nextFetchFailureCount}`,
+        );
+        const escalationMessage =
+          `Unable to fetch reviewer verdict comments after ${nextFetchFailureCount} attempt(s). ` +
+          "Escalating to human for intervention.";
+        if (session.metadata["reviewerFetchEscalationToken"] !== escalationToken) {
+          const event = createEvent("reviewer.failed", {
+            sessionId: session.id,
+            projectId: session.projectId,
+            message: escalationMessage,
+            data: { cycle: currentCycle, fetchFailures: nextFetchFailureCount },
+          });
+          await notifyHuman(event, "urgent");
+        }
+        updateMetadata(sessionsDir, session.id, {
+          reviewerStatus: REVIEWER_STATUS.ESCALATED,
+          reviewerFeedback: escalationMessage,
+          reviewerSessionIds: "",
+          reviewerLastSummary: escalationMessage,
+          reviewerVerdictFetchFailures: String(nextFetchFailureCount),
+          reviewerFetchEscalationToken: escalationToken,
+        });
+        return SESSION_STATUS.REVIEWER_FAILED;
+      }
       updateMetadata(sessionsDir, session.id, {
         reviewerStatus: REVIEWER_STATUS.PENDING,
-        reviewerFeedback: "Unable to fetch reviewer verdict comments; retrying automatically.",
+        reviewerFeedback:
+          `Unable to fetch reviewer verdict comments (attempt ${nextFetchFailureCount}/${fetchFailureLimit}); ` +
+          "retrying automatically.",
+        reviewerVerdictFetchFailures: String(nextFetchFailureCount),
       });
       return SESSION_STATUS.REVIEWER_PENDING;
+    }
+
+    if (verdictFetchFailures > 0 || session.metadata["reviewerFetchEscalationToken"]) {
+      updateMetadata(sessionsDir, session.id, {
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
+      });
     }
 
     if (rejectFindings.length > 0) {
@@ -1053,6 +1097,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           reviewerFailureSentFor: rejectToken,
           reviewerLastSummary: consolidatedFeedback,
           reviewerEscalationToken: rejectToken,
+          reviewerVerdictFetchFailures: "",
+          reviewerFetchEscalationToken: "",
         });
         return SESSION_STATUS.REVIEWER_FAILED;
       }
@@ -1070,6 +1116,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         reviewerLastSummary: consolidatedFeedback,
         reviewerCycle: String(currentCycle + 1),
         reviewerEscalationToken: "",
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
       });
       return SESSION_STATUS.REVIEWER_FAILED;
     }
@@ -1086,6 +1134,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         reviewerEvidenceToken: evidenceToken,
         reviewerLastSummary: summary,
         reviewerEscalationToken: "",
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
       });
       return SESSION_STATUS.REVIEWER_PASSED;
     }
@@ -1159,6 +1209,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         reviewerFeedback: "",
         reviewerLastSummary: "",
         reviewerEscalationToken: "",
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
       });
 
       return SESSION_STATUS.REVIEWER_PENDING;
@@ -1168,6 +1220,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         reviewerFeedback:
           "Unable to spawn reviewer sessions automatically. Check reviewer runtime/agent plugin health.",
         reviewerFailedEvidenceToken: evidenceToken,
+        reviewerVerdictFetchFailures: "",
+        reviewerFetchEscalationToken: "",
       });
       return SESSION_STATUS.REVIEWER_FAILED;
     }

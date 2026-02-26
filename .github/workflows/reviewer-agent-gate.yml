@@ -15,15 +15,52 @@ jobs:
     name: Reviewer Agent Gate
     runs-on: ubuntu-latest
     env:
-      AO_REVIEWER_MIN_APPROVALS: "2"
       AO_REVIEWER_OVERRIDE_LABEL: "reviewer-gate-override"
       AO_REVIEWER_REQUIRE_EVIDENCE: "true"
+      AO_REVIEWER_CONFIG_PATH: "agent-orchestrator.yaml"
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Validate reviewer-agent verdicts
         uses: actions/github-script@v7
         with:
           script: |
-            const minApprovals = Number(process.env.AO_REVIEWER_MIN_APPROVALS ?? "2");
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const parseIntOr = (value, fallback) => {
+              const parsed = Number(value);
+              return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+            };
+            const readMergePolicy = () => {
+              const explicit = process.env.AO_REVIEWER_MIN_APPROVALS;
+              if (explicit) return { minApprovals: parseIntOr(explicit, 2), gateRequired: true };
+
+              const preferred = process.env.AO_REVIEWER_CONFIG_PATH;
+              const candidates = [
+                preferred,
+                "agent-orchestrator.yaml",
+                "agent-orchestrator.yml",
+                "ao.config.yaml",
+                "ao.config.yml",
+              ].filter(Boolean);
+
+              for (const candidate of candidates) {
+                const configPath = path.resolve(process.env.GITHUB_WORKSPACE || ".", candidate);
+                if (!fs.existsSync(configPath)) continue;
+                const content = fs.readFileSync(configPath, "utf8");
+                const gateMatch = content.match(/^\s*requireReviewerAgentGate\s*:\s*(true|false)\s*$/im);
+                const approvalsMatch = content.match(/^\s*minReviewerAgentApprovals\s*:\s*(\d+)\s*$/im);
+                const gateRequired = gateMatch ? gateMatch[1].toLowerCase() !== "false" : true;
+                const minApprovals = approvalsMatch ? parseIntOr(approvalsMatch[1], 2) : 2;
+                return { minApprovals, gateRequired };
+              }
+
+              return { minApprovals: 2, gateRequired: true };
+            };
+
+            const policy = readMergePolicy();
+            const minApprovals = policy.minApprovals;
             const overrideLabel = process.env.AO_REVIEWER_OVERRIDE_LABEL ?? "reviewer-gate-override";
             const requireEvidence = (process.env.AO_REVIEWER_REQUIRE_EVIDENCE ?? "true").toLowerCase() !== "false";
             const pr = context.payload.pull_request;
@@ -35,6 +72,10 @@ jobs:
             const labels = (pr.labels ?? []).map((l) => l.name);
             if (labels.includes(overrideLabel)) {
               core.notice(`Bypassed by label '${overrideLabel}'.`);
+              return;
+            }
+            if (!policy.gateRequired) {
+              core.notice("Reviewer agent gate disabled by merge policy (requireReviewerAgentGate=false).");
               return;
             }
 

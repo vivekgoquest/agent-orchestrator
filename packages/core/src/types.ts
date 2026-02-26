@@ -1254,6 +1254,8 @@ export interface SessionMetadata {
   reviewerFailedEvidenceToken?: string;
   reviewerFailureSentFor?: string;
   reviewerLastSummary?: string;
+  reviewerVerdictFetchFailures?: string;
+  reviewerFetchEscalationToken?: string;
 }
 
 /** Plan lifecycle status for orchestrator planning artifacts. */
