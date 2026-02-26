@@ -148,8 +148,12 @@ function parseReviewerSessionIds(value: string | undefined): string[] {
 }
 
 function reviewerIdsForCount(count: number): string[] {
-  const bounded = Math.max(1, Math.min(3, count));
-  return REVIEWER_ID_POOL.slice(0, bounded);
+  const bounded = Math.max(1, count);
+  const ids = [...REVIEWER_ID_POOL] as string[];
+  while (ids.length < bounded) {
+    ids.push(`reviewer-${ids.length + 1}`);
+  }
+  return ids.slice(0, bounded);
 }
 
 function hashText(input: string): string {
@@ -665,6 +669,19 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     return merged && merged.action ? (merged as ReactionConfig) : null;
   }
 
+  function mergePolicy(): {
+    requireReviewerAgentGate: boolean;
+    minReviewerAgentApprovals: number;
+  } {
+    return {
+      requireReviewerAgentGate: config.policies?.merge?.requireReviewerAgentGate ?? true,
+      minReviewerAgentApprovals: Math.max(
+        1,
+        config.policies?.merge?.minReviewerAgentApprovals ?? 2,
+      ),
+    };
+  }
+
   function hasVerifierGate(project: _ProjectConfig): boolean {
     const verifier = project.verifier ?? config.defaults.verifier;
     return Boolean(verifier?.agent || verifier?.runtime);
@@ -678,6 +695,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   }
 
   function hasReviewerGate(project: _ProjectConfig): boolean {
+    const merge = mergePolicy();
+    if (!merge.requireReviewerAgentGate) return false;
     const reviewerPolicy = config.policies?.reviewer;
     if (reviewerPolicy?.enabled === false) return false;
     const reviewer = resolveReviewerRole(project);
@@ -687,14 +706,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
   function reviewerPolicy(): {
     enabled: boolean;
     reviewerCount: number;
+    requiredApprovals: number;
     maxCycles: number;
     requireEvidence: boolean;
     verdictChannel: "issue-comments";
     notifyOnPass: boolean;
   } {
+    const merge = mergePolicy();
+    const configuredCount = config.policies?.reviewer?.reviewerCount ?? 2;
+    const requiredApprovals = merge.requireReviewerAgentGate
+      ? merge.minReviewerAgentApprovals
+      : 0;
     return {
       enabled: config.policies?.reviewer?.enabled ?? true,
-      reviewerCount: config.policies?.reviewer?.reviewerCount ?? 2,
+      reviewerCount: Math.max(configuredCount, requiredApprovals || 1),
+      requiredApprovals,
       maxCycles: config.policies?.reviewer?.maxCycles ?? 3,
       requireEvidence: config.policies?.reviewer?.requireEvidence ?? true,
       verdictChannel: "issue-comments",
@@ -711,11 +737,16 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     createdAt: string;
   }
 
+  interface ReviewerVerdictQueryResult {
+    comments: ReviewerVerdictComment[];
+    fetchError: boolean;
+  }
+
   async function listReviewerVerdictComments(
     session: Session,
-  ): Promise<ReviewerVerdictComment[]> {
+  ): Promise<ReviewerVerdictQueryResult> {
     const pr = session.pr;
-    if (!pr) return [];
+    if (!pr) return { comments: [], fetchError: false };
     try {
       const { stdout } = await runExecFile("gh", [
         "api",
@@ -747,9 +778,9 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
           createdAt: comment.created_at ?? "",
         });
       }
-      return results;
+      return { comments: results, fetchError: false };
     } catch {
-      return [];
+      return { comments: [], fetchError: true };
     }
   }
 
@@ -945,7 +976,8 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
         (reviewerSession) => !reviewerSession || terminalStatuses.has(reviewerSession.status),
       );
 
-    const allVerdicts = await listReviewerVerdictComments(session);
+    const verdictQuery = await listReviewerVerdictComments(session);
+    const allVerdicts = verdictQuery.comments;
     const cycleVerdicts = allVerdicts.filter(
       (verdict) => verdict.cycle === currentCycle || (verdict.cycle === null && currentCycle === 1),
     );
@@ -982,12 +1014,21 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
     }
 
     if (
+      !verdictQuery.fetchError &&
       rejectFindings.length === 0 &&
       reviewerSessionIds.length > 0 &&
       allReviewerSessionsTerminal &&
-      approvalCount < reviewerIds.length
+      approvalCount < policy.requiredApprovals
     ) {
       rejectFindings.push("Reviewer sessions exited without posting required verdict comments.");
+    }
+
+    if (verdictQuery.fetchError && (reviewerSessionIds.length > 0 || status === REVIEWER_STATUS.PENDING)) {
+      updateMetadata(sessionsDir, session.id, {
+        reviewerStatus: REVIEWER_STATUS.PENDING,
+        reviewerFeedback: "Unable to fetch reviewer verdict comments; retrying automatically.",
+      });
+      return SESSION_STATUS.REVIEWER_PENDING;
     }
 
     if (rejectFindings.length > 0) {
@@ -1033,9 +1074,10 @@ export function createLifecycleManager(deps: LifecycleManagerDeps): LifecycleMan
       return SESSION_STATUS.REVIEWER_FAILED;
     }
 
-    if (approvalCount >= reviewerIds.length) {
+    if (approvalCount >= policy.requiredApprovals) {
       const summary =
-        approvalSummaries.join("\n") || `All ${reviewerIds.length} reviewer verdicts approved.`;
+        approvalSummaries.join("\n") ||
+        `Received ${approvalCount} reviewer approval verdict(s).`;
       updateMetadata(sessionsDir, session.id, {
         reviewerStatus: REVIEWER_STATUS.PASSED,
         reviewerFeedback: summary,

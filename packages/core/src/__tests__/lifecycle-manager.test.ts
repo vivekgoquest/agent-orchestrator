@@ -996,6 +996,117 @@ describe("check (single session)", () => {
     expect(meta?.reviewerSessionIds).toContain("rev-2");
   });
 
+  it("uses merge.minReviewerAgentApprovals for reviewer gate decisions", async () => {
+    config.defaults.reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.projects["my-app"].reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.policies = {
+      spawn: {
+        requireValidatedPlanTask: false,
+      },
+      merge: {
+        allowAutoMerge: false,
+        requireReviewerAgentGate: true,
+        minReviewerAgentApprovals: 1,
+      },
+      reviewer: {
+        enabled: true,
+        reviewerCount: 2,
+        maxCycles: 3,
+        requireEvidence: true,
+        verdictChannel: "issue-comments",
+        notifyOnPass: true,
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("approved"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn().mockResolvedValue({
+        mergeable: true,
+        ciPassing: true,
+        approved: true,
+        noConflicts: true,
+        blockers: [],
+      }),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      const cb = args[args.length - 1] as ((err: Error | null, stdout: string, stderr: string) => void);
+      const comments = [
+        {
+          body:
+            "AO_REVIEWER_ID: reviewer-alpha\n" +
+            "AO_REVIEWER_VERDICT: APPROVE\n" +
+            "AO_REVIEWER_CYCLE: 1\n" +
+            "AO_REVIEWER_EVIDENCE: test=pnpm --filter @composio/ao-core test\n" +
+            "Targeted lifecycle validation passed.",
+          created_at: "2026-02-25T10:00:00Z",
+        },
+      ];
+      if (typeof cb === "function") cb(null, JSON.stringify(comments), "");
+      return undefined as never;
+    }) as unknown as typeof execFile);
+
+    const session = makeSession({
+      status: "pr_open",
+      pr: makePR(),
+      metadata: {
+        reviewerStatus: "pending",
+        reviewerSessionIds: "rev-1,rev-2",
+        reviewerCycle: "1",
+      },
+    });
+    vi.mocked(mockSessionManager.get).mockImplementation(async (id: string) => {
+      if (id === "app-1") return session;
+      if (id === "rev-1")
+        return makeSession({ id: "rev-1", status: "killed", metadata: { role: "reviewer" } });
+      if (id === "rev-2")
+        return makeSession({ id: "rev-2", status: "killed", metadata: { role: "reviewer" } });
+      return null;
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+      reviewerStatus: "pending",
+      reviewerSessionIds: "rev-1,rev-2",
+      reviewerCycle: "1",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("mergeable");
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta?.reviewerStatus).toBe("passed");
+  });
+
   it("routes reviewer rejection feedback to worker and marks reviewer_failed", async () => {
     config.defaults.reviewer = { runtime: "mock", agent: "mock-agent" };
     config.projects["my-app"].reviewer = { runtime: "mock", agent: "mock-agent" };
@@ -1110,6 +1221,97 @@ describe("check (single session)", () => {
     const meta = readMetadataRaw(sessionsDir, "app-1");
     expect(meta?.reviewerStatus).toBe("failed");
     expect(meta?.reviewerCycle).toBe("2");
+  });
+
+  it("keeps reviewer gate pending when verdict fetch fails transiently", async () => {
+    config.defaults.reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.projects["my-app"].reviewer = { runtime: "mock", agent: "mock-agent" };
+    config.policies = {
+      spawn: {
+        requireValidatedPlanTask: false,
+      },
+      reviewer: {
+        enabled: true,
+        reviewerCount: 2,
+        maxCycles: 3,
+        requireEvidence: true,
+        verdictChannel: "issue-comments",
+        notifyOnPass: true,
+      },
+    };
+
+    const mockSCM: SCM = {
+      name: "mock-scm",
+      detectPR: vi.fn(),
+      getPRState: vi.fn().mockResolvedValue("open"),
+      mergePR: vi.fn(),
+      closePR: vi.fn(),
+      getCIChecks: vi.fn(),
+      getCISummary: vi.fn().mockResolvedValue("passing"),
+      getReviews: vi.fn(),
+      getReviewDecision: vi.fn().mockResolvedValue("none"),
+      getPendingComments: vi.fn(),
+      getAutomatedComments: vi.fn(),
+      getMergeability: vi.fn(),
+    };
+
+    const registryWithSCM: PluginRegistry = {
+      ...mockRegistry,
+      get: vi.fn().mockImplementation((slot: string) => {
+        if (slot === "runtime") return mockRuntime;
+        if (slot === "agent") return mockAgent;
+        if (slot === "scm") return mockSCM;
+        return null;
+      }),
+    };
+
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      const cb = args[args.length - 1] as ((err: Error | null, stdout: string, stderr: string) => void);
+      if (typeof cb === "function") cb(new Error("gh API unavailable"), "", "network error");
+      return undefined as never;
+    }) as unknown as typeof execFile);
+
+    const session = makeSession({
+      status: "pr_open",
+      pr: makePR(),
+      metadata: {
+        reviewerStatus: "pending",
+        reviewerSessionIds: "rev-1,rev-2",
+        reviewerCycle: "1",
+      },
+    });
+    vi.mocked(mockSessionManager.get).mockImplementation(async (id: string) => {
+      if (id === "app-1") return session;
+      if (id === "rev-1")
+        return makeSession({ id: "rev-1", status: "killed", metadata: { role: "reviewer" } });
+      if (id === "rev-2")
+        return makeSession({ id: "rev-2", status: "killed", metadata: { role: "reviewer" } });
+      return null;
+    });
+
+    writeMetadata(sessionsDir, "app-1", {
+      worktree: "/tmp",
+      branch: "main",
+      status: "pr_open",
+      project: "my-app",
+      reviewerStatus: "pending",
+      reviewerSessionIds: "rev-1,rev-2",
+      reviewerCycle: "1",
+    });
+
+    const lm = createLifecycleManager({
+      config,
+      registry: registryWithSCM,
+      sessionManager: mockSessionManager,
+    });
+
+    await lm.check("app-1");
+
+    expect(lm.getStates().get("app-1")).toBe("reviewer_pending");
+    expect(mockSessionManager.send).not.toHaveBeenCalled();
+    const meta = readMetadataRaw(sessionsDir, "app-1");
+    expect(meta?.reviewerStatus).toBe("pending");
+    expect(meta?.reviewerFeedback).toContain("Unable to fetch reviewer verdict comments");
   });
 
   it("treats reviewer approvals as a mergeability gate and proceeds when they pass", async () => {
